@@ -1,0 +1,45 @@
+#!/bin/bash
+
+DATE=${1:-`date -u -d "1 days ago" +'%Y%m%d'`}    # Valid date
+HOURS=(00 06 12 18)                                  # Forecast hours
+YEAR=`echo $DATE |cut -c1-4`                      # Query Year
+SRCURI="moose:/opfc/atm/global/prods/$YEAR.pp/"    # SRC-URI
+EXTRACT_DIR=$SCRATCH/aeroct/global-nwp            # Extract path
+Q_UM=$EXTRACT_DIR/aod_um.query                    # Query file
+
+mkdir -p $EXTRACT_DIR
+#rm -f ${EXTRACT_DIR}/*
+rm -f $Q_UM
+
+# -----------------------------------------------------------------------------
+# Extract UM aod PP file from MASS
+# Update moose query file to extract AOD diagnostics at $HOURS:
+# -----------------------------------------------------------------------------
+for hh in ${HOURS[@]}; do
+	#echo $hh
+    echo "begin" >> $Q_UM
+    echo "  stash=2422" >> $Q_UM                  # stash code for aod
+    echo "  lbft=[0..24]" >> $Q_UM                 # forecast lead time (hour)
+    echo "  lbuser_5=3" >> $Q_UM                  # pseudo level for wavelengths
+    echo "  min=[0..29]" >> $Q_UM                 # 
+    #echo "  pp_file='prods_op_gl-up_${DATE}_${hh}_*'" >> $Q_UM  #from update runs 
+    echo "  pp_file='prods_op_gl-mn_${DATE}_${hh}_*'" >> $Q_UM  # forecasts from main run
+    echo "end" >> $Q_UM
+done
+
+
+echo -e "\n----- ----------------------------------------------------"
+echo -e "`date +'%H:%M'` Extracting UM AOD diagnostics for $DATE from MASS"
+echo -e "----- ----------------------------------------------------"
+
+moo select $Q_UM -f $SRCURI $EXTRACT_DIR
+
+if [[ $? -eq 0 ]]; then 
+    echo "`date +'%H:%M'` UM AOD diagnostics OK."
+    echo "Files extracted in $EXTRACT_DIR"
+else
+    echo $0 'Error in UM AOD diagnostics extraction'
+fi
+
+#[[ $? -eq 0 ]] && echo -e "`date +'%H:%M'` UM AOD diagnostics OK.\n" \
+#               || echo $0 'Error in UM AOD diagnostics extraction'
