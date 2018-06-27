@@ -60,7 +60,7 @@ def retrieve_data_day(date, minutes_err=30):
     '''
     
     if type(date) is not datetime:
-        date = datetime.strptime(date, '%Y%m%s')
+        date = datetime.strptime(date, '%Y%m%d')
     
     start = date - timedelta(minutes=minutes_err)
     stop = date + timedelta(days=1) + timedelta(minutes=minutes_err)

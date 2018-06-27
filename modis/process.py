@@ -18,17 +18,19 @@ def process_data(aod_array, date):
     
     Parameter:
     aod_array: (rec array) The data obtained from the download module.
+    date: (str or datetime) The date for which to retrieve records. Format: YYYYMMDD for
+        strings. Do not include a time if a datetime is used.
     '''
+    
+    if type(date) is not datetime:
+        date = datetime.strptime(date, '%Y%m%d')
     
     aod = aod_array['AOD_NM550']
     lat = aod_array['LTTD']
     lon = aod_array['LNGD']
     wl = 550    # wavelength [nm]
     
-    total_hours = lambda td: td.seconds / 3600 + td.days * 24
-    
-    dt = datetime(aod_array['YEAR'], aod_array['MNTH'], aod_array['DAY'],
-                  aod_array['HOUR'], aod_array['MINT'])
-    time = total_hours(dt - date)  # Hours since 00:00:00
+    time = (aod_array['DAY'] - date.day) * 24 + (aod_array['HOUR'] - date.hour) + \
+           (aod_array['MINT'] - date.minute) / 60   # Hours since 00:00:00
     
     return [aod, lat, lon, time, date, wl]

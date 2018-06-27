@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 ext_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/global-nwp/'
 
 
-def extract_from_mass(date, out_path):
+def extract_from_mass(date, fc_time, out_path):
     '''
     Use 'moo select' to retrieve the files from mass
     '''
@@ -25,54 +25,64 @@ def extract_from_mass(date, out_path):
     src_uri = 'moose:/opfc/atm/global/prods/{}.pp/'.format(year)# source URI
     extract_dir = out_path                                      # extract path
     q_um = '{}aod_um.query'.format(extract_dir)                 # query file path
+    date_before = (datetime.strptime(date, '%Y%m%d') - timedelta(days=1)).strftime('%Y%m%d')
     
-    # Make the extract directory if it does not exist and remove an existing query file.
+    # Make the extract directory if it does not exist and create a new query file.
     os.system('mkdir -p {}'.format(extract_dir))
     os.system('rm -f {}'.format(q_um))
+    os.system('touch {}'.format(q_um))
     
     # Extract UM aod PP file from MASS
     # Update moose query file to extract AOD diagnostics at the given forecast hours:
-    for h in hours:
-        hh = str(h).zfill(2)
-        with open(q_um, 'w') as file_writer:
-            file_writer.write('begin\n')
-            file_writer.write('  stash=2422\n')       # stash code for AOD
-            file_writer.write('  lbft=[0..24]\n')     # forecast lead time (hours)
-            file_writer.write('  lbuser_5=3\n')       # pseudo level for wavelengths
-            file_writer.write('  min=[0..29]\n')      # 
-#             file_writer.write('  pp_file="prods_op_gl-up_{0}_{1}*"\n'.format(date, hh) # update runs
-            file_writer.write('  pp_file="prods_op_gl-mn_{0}_{1}*"\n'.format(date, hh)) # main run
-            file_writer.write('end')
     
-    print('Extracting UM AOD diagnostics from MASS for {}'.format(date))
+    with open(q_um, 'w') as file_writer:
+        for d in [date_before, date]:
+            for h in hours:
+                hh = str(h).zfill(2)
+                file_writer.write('begin\n')
+                file_writer.write('  stash=2422\n')       # stash code for AOD
+                file_writer.write('  lbft={}\n'.format(fc_time))     # forecast lead time (hours)
+                file_writer.write('  lbuser_5=3\n')       # pseudo level for wavelengths
+                file_writer.write('  min=[0..29]\n')      # 
+#                 file_writer.write('  pp_file="prods_op_gl-up_{0}_{1}*"\n'.format(d, hh)) # update runs
+                file_writer.write('  pp_file="prods_op_gl-mn_{0}_{1}*"\n'.format(d, hh)) # main run
+                file_writer.write('end\n\n')
+    
+    print('Extracting UM AOD files from MASS for {} to location {}'.format(date, extract_dir))
     os.system('moo select {0} -f {1} {2}'.format(q_um, src_uri, extract_dir))
 
 
-def download_data_day(date, out_path=None):
+def download_data_day(date, forecast_time, out_path=None, force=True):
     '''
     Download the AOD forecast data for the given date from MASS. The location of the
     saved files can be chosen.
     
     Parameter:
     date: (str) Date to download forecast data in format "YYYYMMDD".
+    forecast_time: (int) The forecast lead time.
+        Possible choices: 0, 3, 6, 9, 12, 15, 18, 21, 24.
     out_path: (str, optional) The directory in which to save the output files.
         Default: /scratch/{USER}/aeroct/global-nwp/
+    force: (bool, optional) Choose whether to extract the files if they any are detected
+        in the output directory.    Default: False
     '''
     if out_path is None:
         out_path = ext_path
+    fc = str(forecast_time)
     
     # Check to see if the data has already been retrieved
-    if len(os.popen('ls ' + out_path + '*20180610* 2> /dev/null').read()) > 1:
+    if (len(os.popen('ls {0}*{1}*_{2}* 2> /dev/null'.format(out_path, date, fc)).read()) \
+        > 1) & (force is False):
         print('Files already extracted.')
         return
     
     if (date == None) | (datetime.strptime(date, '%Y%m%d') > datetime(2015,02,03)):
-        extract_from_mass(date, out_path)
+        extract_from_mass(date, fc, out_path)
     else:
         raise ValueError, 'Date too early to currently handle. Restrict to after 2015-02-03.'
 
 
-def download_data_range(date1='20180101', date2=None, out_path=None):
+def download_data_range(date1, date2=None, forecast_time=0, out_path=None):
     '''
     Extract all forecast files within a time frame. If date2 is not provided then all
     files since date1 are extracted.
@@ -82,9 +92,11 @@ def download_data_range(date1='20180101', date2=None, out_path=None):
     date2: (str) The date to which files whould be extracted. Format: "YYYYMMDD".
         If None then today's date is used.
         Default: None
+    forecast_time: (int, optional) The forecast lead time.
+        Possible choices: 0, 3, 6, 9, 12, 15, 18, 21, 24.
+        Default: 0
     out_path: (str, optional) The directory in which to save the output files.
         Default: /scratch/{USER}/aeroct/global-nwp/
-        (Currently unavailable)
     '''
     if out_path is None:
         out_path = ext_path
@@ -110,7 +122,8 @@ def download_data_range(date1='20180101', date2=None, out_path=None):
     date_list = [date1_dt + timedelta(days=x) for x in range((date2_dt-date1_dt).days + 1)]
     
     for d in date_list:
-        download_data_day(str(d.year) + str(d.month).zfill(2) + str(d.day).zfill(2))
+        download_data_day(str(d.year) + str(d.month).zfill(2) + str(d.day).zfill(2),
+                          forecast_time, out_path)
 
 
 if __name__ == '__main__':

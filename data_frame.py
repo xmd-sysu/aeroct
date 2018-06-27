@@ -25,7 +25,7 @@ class DataFrame():
     '''
 
     def __init__(self, data, latitudes, longitudes, times, date, wavelength=550,
-                 forecast_time=None, data_set=None):
+                 forecast_time=None, data_set=None, gridded=False):
         self.data = data                    # AOD data
         self.longitudes = longitudes        # [degrees]
         self.latitudes = latitudes          # [degrees]
@@ -34,12 +34,13 @@ class DataFrame():
         self.date = date                    # (datetime)
         self.wavelength = wavelength        # [nm]
         self.forecast_time = forecast_time  # [hours]
+        self.gridded = gridded              # Has a grid in space and time? (forecast)
     
     def datetimes(self):
         return [self.date + timedelta(hours=h) for h in self.times]
 
 
-def load_data_frame(data_set, date, forecast_time=0, src=None, out_dir=None):
+def load(data_set, date, forecast_time=0, src=None, out_dir=None):
     '''
     Load a data frame for a given date using data from either AERONET, MODIS, or the
     Unified Model (metum). This will allow it to be matched and compared with other data
@@ -48,8 +49,8 @@ def load_data_frame(data_set, date, forecast_time=0, src=None, out_dir=None):
     Parameters:
     data_set: (str) The data set to load. This may be 'aeronet', 'modis', or 'metum'.
     date: (str) The date for the data that is to be loaded. Specify in format 'YYYYMMDD'.
-    forecast_time: (int, optional) The number of hours ahead for the forecast if metum is
-        chosen. (Default: 0)
+    forecast_time: (int, optional) The forecast leading time to use if metum is chosen.
+        (Default: 0)
     src: (str, optional) The source to retrieve the data from.
         (Currently unavailable)
     out_dir: (str, optional) The directory in which to save any files.
@@ -74,14 +75,13 @@ def load_data_frame(data_set, date, forecast_time=0, src=None, out_dir=None):
         return DataFrame(*parameters, data_set=data_set)
     
     elif data_set == 'metum':
-        print('Retrieving Unified Model files for ' + date + '.')
-        metum.download_data_day(date)
+        metum.download_data_day(date, forecast_time)
         print('Loading files.')
         aod_cube = metum.load_files(date, forecast_time, out_dir)
         print('Processing...', end='')
-        parameters = metum.process_data(aod_cube, forecast_time)
+        parameters = metum.process_data(aod_cube, date, forecast_time)
         print('Complete.')
-        return DataFrame(*parameters, data_set=data_set)
+        return DataFrame(*parameters, data_set=data_set, gridded=True)
     
     else:
         print('Invalid data set: {}'.format(data_set))

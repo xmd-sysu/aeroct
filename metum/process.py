@@ -61,30 +61,35 @@ def flattend_3D_grid(x, y, z):
     return X.flatten(), Y.flatten(), Z.flatten()
 
 
-def process_data(aod_cube, forecast_time):
+def process_data(aod_cube, date, forecast_time):
     '''
     Process the AOD data from an iris cube into a list that may be passed into a
     data_frame so that it may be compared with other data sources.
     
     Parameter:
     aod_cube: (Iris cube) The cube loaded from the forecast files using load_files.
+    date: (str, datetime) The date of the loaded files. If a string, in format 'YYYYMMDD'.
+        If a datetime, ensure there is no time.
     forecast_time: (int) The number of hours ahead for the forecast.
         Possible choices: 0, 3, 6, 9, 12, 15, 18, 21, 24.
     '''
-    aod_data = aod_cube.data.flatten()
     
-    # Get the grid of each coordinate over the entire cube and then flatten them
-    time_points = aod_cube.coord('time').points
-    lat_points = aod_cube.coord('latitude').points
-    lon_points = aod_cube.coord('longitude').points
-    hours1970, lat, lon = flattend_3D_grid(time_points, lat_points, lon_points)
+    if type(date) is not datetime:
+        date = datetime.strptime(date, '%Y%m%d')
     
-    date = []
-    time = []
-    for h in hours1970:
-        dt = datetime(1970, 1, 1) + timedelta(hours=h)
-        date.append(dt.date())
-        time.append(dt.time().hour)
+    # Keep the data in 3D
+    aod_data = aod_cube.data
+    
+    # Axes of data
+    hours1970 = aod_cube.coord('time').points     # Hours since 1970-1-1
+    lat = aod_cube.coord('latitude').points
+    lon = aod_cube.coord('longitude').points
+    
+    # Get the hours since 00:00:00 on date for each time coordinate
+    time = np.zeros_like(hours1970)
+    for i_h, hour in enumerate(hours1970):
+        dt = datetime(1970, 1, 1) + timedelta(hours=hour)
+        time[i_h] = (dt - date).days * 24 + (dt - date).seconds / 3600
     
     wl = wavelength[aod_cube.coord('pseudo_level').points[0]]
      
