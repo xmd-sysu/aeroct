@@ -9,11 +9,19 @@ TODO: Add an attribute for if the data frames require testing for nearby times o
 
 from __future__ import print_function, division
 import numpy as np
+import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
+import os
+try:
+    import cPickle as pickle
+except ModuleNotFoundError:
+    import pickle
 
 import aeronet
 import modis
 import metum
+
+scratch_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/data_frames/'
 
 class DataFrame():
     '''
@@ -35,9 +43,72 @@ class DataFrame():
         self.wavelength = wavelength        # [nm]
         self.forecast_time = forecast_time  # [hours]
         self.gridded = gridded              # Has a grid in space and time? (forecast)
+        self.data_set = data_set            # The name of the data set or a tuple
     
     def datetimes(self):
         return [self.date + timedelta(hours=h) for h in self.times]
+    
+    
+    def dump(self, path=scratch_path, filename=None):
+        '''
+        Save the data frame as a file in the chosen location. Note that saving and
+        loading large data frames can take some time.
+        
+        Parameters:
+        path: (str, optional) The path to the directory where the file will be saved.
+            Default: '/scratch/{USER}/aeroct/data_frames/'
+        filename: (str, optional) What to name the saved file.
+            Default: '{data_set(s)}_YYYYMMDD_##'
+        '''
+        # Make directory if it does not exist
+        os.system('mkdir -p {}'.format(path))
+        
+        if filename != None:
+            pass
+        elif type(self.data_set) == str:
+            filename = '{}_{}_'.format(self.data_set, self.date.strftime('%Y%m%d'))
+        elif type(self.data_set) == tuple:
+            filename = '{}-{}_{}_'.format(self.data_set[0], self.data_set[1],
+                                                self.date.strftime('%Y%m%d'))
+        else:
+            raise ValueError, 'data_set attribute invalid. Cannot create filename'
+        
+        i = 0
+        while os.path.exists(path + filename + str(i).zfill(2)):
+            i += 1
+        
+        # Write file
+        os.system('touch {}'.format(path + filename + str(i).zfill(2)))
+        with open(path + filename + str(i).zfill(2), 'w') as writer:
+            pickle.dump(self, writer, -1)
+        print('Data frame saved successfully to {}'.format(path + filename + str(i).zfill(2)))
+    
+    
+    def scatter_plot(self, stats=True, show=True):
+        '''
+        This is used to plot AOD data from two sources which have been matched-up on a
+        scatter plot. The output are the stats if stats=True and the figure also if
+        show=True.
+        
+        Parameters:
+        stats: (bool, optional) Choose whether to calculate statistics for the plot.
+            These are shown on the plot if show=True.    Default: True
+        show: (bool, optional) If True, the plot is shown otherwise the figure is passed
+            as an output.    Default: True
+        '''
+        if type(self.data_set) != tuple:
+            raise ValueError, 'The data frame must be matched-up data from two data sets'
+        
+        fig = plt.figure()
+        plt.plot(self.data[0], self.data[1], '.', color=self.times/24)
+        max_value = np.max(self.data)
+        plt.plot([0, max_value], [0, max_value], 'b--')
+        
+        if show is True:
+            fig.show()
+            return
+        else:
+            return fig
 
 
 def load(data_set, date, forecast_time=0, src=None, out_dir=None):

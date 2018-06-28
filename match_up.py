@@ -5,9 +5,17 @@ time and space.
 Created on Jun 27, 2018
 
 @author: savis
-'''
 
+TODO: Allow match-up with gridded data.
+TODO: Create another function to average the AOD data to remove the large else statement.
+'''
+from __future__ import division, print_function
 import numpy as np
+from data_frame import DataFrame
+
+
+is_equal = lambda a, b: ((a - b) < a / 10000) & ((b - a) < a / 10000)
+
 
 def match_time(df1, df2, time_length):
     '''
@@ -21,6 +29,7 @@ def match_time(df1, df2, time_length):
     bin_bounds = np.arange(-time_length/2, 24 + time_length, time_length)[:,np.newaxis]
     time1_bin_matrix = (df1.times > bin_bounds[:-1]) & (df1.times < bin_bounds[1:])
     time2_bin_matrix = (df2.times > bin_bounds[:-1]) & (df2.times < bin_bounds[1:])
+    
     #  Get a list of indices in each bin.
     i_time1 = np.arange(df1.times.size)
     i_time2 = np.arange(df2.times.size)
@@ -32,7 +41,7 @@ def match_time(df1, df2, time_length):
     i_time1_bins = []
     i_time2_bins = []
     for i in np.arange(bins.size):
-        if (len(i_time1_all_bins[i])==0) & (len(i_time2_all_bins[i])==0):
+        if (len(i_time1_all_bins[i]) != 0) & (len(i_time2_all_bins[i]) != 0):
             times.append(bins[i])
             i_time1_bins.append(i_time1_all_bins[i])
             i_time2_bins.append(i_time2_all_bins[i])
@@ -59,10 +68,10 @@ def haversine(lon1, lat1, lon2, lat2):
     return km
 
 
-def is_close_ungridded(lat1, lon1, lat2, lon2, match_dist):
+def match_loc_ungridded(lat1, lon1, lat2, lon2, match_dist, i_1, i_2):
     '''
-    Return the indices of 1 and the indices of 2 and the locations of whichever has fewer
-    locations. lat1 and loc1 must have the same lengths, as must lat2 and lon2.
+    Return the indices of matching pairs of the two data frames. lat1 and loc1 must have
+    the same lengths, as must lat2 and lon2.
     '''
        
     # Obtain the pairs of indices for the two data frames which are close.
@@ -70,18 +79,37 @@ def is_close_ungridded(lat1, lon1, lat2, lon2, match_dist):
     lat1 = lat1[:, np.newaxis]
     lon1 = lon1[:, np.newaxis]
     loc_match_matrix = haversine(lon1, lat1, lon2, lat2) < match_dist
-     
-    loc1_ind = np.arange(lat1.size)
-    loc2_ind = np.arange(lat2.size)
-    loc_ind_matrix = np.array(np.meshgrid(loc2_ind, loc1_ind)) # Matrices of indices
-    loc_match_ind = loc_ind_matrix[:,loc_match_matrix]
     
-    # Find which data frame has the fewest locations. This data frame's locations will be
-    # used for the locations of the averaged AOD data.
-    if lat1.size < lat2.size:
-        i_loc1 = 
-    else:
-        loc_df = 2
+    i_loc_matrix = np.array(np.meshgrid(i_2, i_1)) # Matrices of indices
+    i_loc_match = i_loc_matrix[:,loc_match_matrix]
+    
+    return i_loc_match[1], i_loc_match[0]
+
+
+def average_aod(df1, df2, i1, i2, time):
+    
+    # The data frame with the fewest locations will be used for the locations of the
+    # averaged AOD data. So need to ensure they are the right way around.
+    if df1.latitudes.size > df2.latitudes.size:
+        out = average_aod(df2, df1, i2, i1)
+        return (out[1], out[0], out[3], out[2]) + out[4:]
+    
+    lat1, lon1 = df1.latitudes, df1.longitudes
+    
+    lat1_uniq, i_uniq1 = np.unique(lat1[i1], return_index=True)
+    lon1_uniq = lon1[i1][i_uniq1]
+    time = np.full_like(lat1_uniq, time)
+    
+    # Take the averages and standard deviations at each unique location
+    bool_matrix = (lat1[i1] == lat1_uniq[:,np.newaxis]) & (lon1[i1] == lon1_uniq[:,np.newaxis])
+    aod1, aod2, std1, std2 = [], [], [], []
+    for i_match in bool_matrix:
+        aod1.append(np.average(df1.data[i1[i_match]]))
+        aod2.append(np.average(df2.data[i2[i_match]]))
+        std1.append(np.std(df1.data[i1[i_match]]))
+        std2.append(np.std(df2.data[i2[i_match]]))
+    
+    return aod1, aod2, std1, std2, lat1_uniq, lon1_uniq, time
 
 
 def match_up(df1, df2, time_length=0.5, match_dist=25):
@@ -106,12 +134,69 @@ def match_up(df1, df2, time_length=0.5, match_dist=25):
     
     times, i_time1_bins, i_time2_bins = match_time(df1, df2, time_length)
     
-    for i_times in np.arange(times.size):
-        i_t1, i_t2 = i_time1_bins[i_times], i_time2_bins[i_times]
+    # The aod lists will be turned into a 2D numpy array. The first index will give the
+    # data set and the second will give the match-up pair. The time_list will give the
+    # times of each pair and the location lists will give the corresponding locations.
+    aod1_list, aod2_list, std1_list, std2_list = [], [], [], []
+    lat_list, lon_list, time_list  = [], [], []
+    
+    for i_t, time in enumerate(times):
+        # Indices for the data in each time bin
+        i_t1, i_t2 = i_time1_bins[i_t], i_time2_bins[i_t]
+#         print('Matching data: {:.1f}% complete.'.format(time / times[-1] * 100), end="\r")
+        print('.', end='')
+        
         if (df1.gridded is False) & (df2.gridded is False):
-            lat1, lon1 = df1.latitudes[i_t1], df1.longitudes[i_t1]
-            lat2, lon2 = df2.latitudes[i_t2], df2.longitudes[i_t2]
-            is_close_ungridded(lat1, lon1, lat2, lon2, match_dist)
+            # Get match-up pairs and their indices
+            lat1, lon1 = df1.latitudes, df1.longitudes
+            lat2, lon2 = df2.latitudes, df2.longitudes
+            i1, i2 = match_loc_ungridded(lat1[i_t1], lon1[i_t1], lat2[i_t2], lon2[i_t2],
+                                        match_dist, i_t1, i_t2)
+            
+            aod1, aod2, std1, std2, lat, lon, time = average_aod(df1, df2, i1, i2, time)
+            
+            aod1_list.extend(aod1)
+            aod2_list.extend(aod2)
+            std1_list.extend(std1)
+            std2_list.extend(std2)
+            lat_list.extend(lat)
+            lon_list.extend(lon)
+            time_list.extend(time)
+            
+            # Find which data frame has the fewest locations. This data frame's locations
+            # will be used for the locations of the averaged AOD data.
+            # Then average all of the AOD data at each unique location.
+#             if df1.latitudes.size < df2.latitudes.size:                
+#                 lat1_uniq, i_uniq1 = np.unique(lat1[i1], return_index=True)
+#                 lon1_uniq = lon1[i1][i_uniq1]
+#                 aod1_list.extend([np.average(df1.data[i1[i]]) for i in 
+#                                   (lat1[i1] == lat1_uniq[:,np.newaxis]) &
+#                                   (lon1[i1] == lon1_uniq[:,np.newaxis])   ])
+#                 aod2_list.extend([np.average(df2.data[i2[i]]) for i in
+#                                   (lat1[i1] == lat1_uniq[:,np.newaxis]) &
+#                                   (lon1[i1] == lon1_uniq[:,np.newaxis])   ])
+#                 
+#                 lat_list.extend(lat1_uniq)
+#                 lon_list.extend(lon1_uniq)
+#                 time_list.extend(np.full_like(lat1_uniq, time))
+# #                 print([np.average(df1.data[i1[i]]) for i in 
+# #                                   (lat1[i1] == lat1_uniq[:,np.newaxis]) &
+# #                                   (lon1[i1] == lon1_uniq[:,np.newaxis])   ])
+#                 
+#             else:                
+#                 lat2_uniq, i_uniq2 = np.unique(lat2[i2], return_index=True)
+#                 lon2_uniq = lon2[i1][i_uniq2]
+#                 aod1_list.extend([np.average(df1.data[i1[i]]) for i in
+#                                   (is_equal(lat2[i2], lat2_uniq[:,np.newaxis])) &
+#                                   (is_equal(lon2[i2], lon2_uniq[:,np.newaxis]))   ])
+#                 aod2_list.extend([np.average(df2.data[i2[i]]) for i in
+#                                   (is_equal(lat2[i2], lat2_uniq[:,np.newaxis])) &
+#                                   (is_equal(lon2[i2], lon2_uniq[:,np.newaxis]))   ])
+#                 
+#                 lat_list.extend(lat2_uniq)
+#                 lon_list.extend(lon2_uniq)
+#                 time_list.extend(np.full_like(lat2_uniq, time))
+            
         
         elif (df1.gridded is False) & (df2.gridded is True):
             pass
@@ -120,6 +205,15 @@ def match_up(df1, df2, time_length=0.5, match_dist=25):
             pass
         elif (df1.gridded is True) & (df2.gridded is True):
             pass
+    
+    print()
+    aod = np.array([aod1_list, aod2_list])
+    lat = np.array(lat_list)
+    lon = np.array(lon_list)
+    times = np.array(time_list)
+    forecasts = (df1.forecast_time, df2.forecast_time)
+    data_sets = (df1.data_set, df2.data_set)
+    return DataFrame(aod, lat, lon, times, df1.date, df1.wavelength, forecasts, data_sets)
     
 
 
@@ -142,6 +236,22 @@ def match_up(df1, df2, time_length=0.5, match_dist=25):
 #     time_ind_matrix = np.array(np.meshgrid(times2_ind, times1_ind)) # Matrices of indices
 #     time_match_ind = time_ind_matrix[:,time_match_matrix]
 
+# def old_is_close_ungridded(lat1, lon1, lat2, lon2, match_dist, i_1, i_2):
+#     '''
+#     Return the indices of 1 and the indices of 2 and the locations of whichever has fewer
+#     locations. lat1 and loc1 must have the same lengths, as must lat2 and lon2.
+#     '''
+#        
+#     # Obtain the pairs of indices for the two data frames which are close.
+#     # This will be given in loc_match_ind as: [[matching indices of 1],[" " " 2]]
+#     lat1 = lat1[:, np.newaxis]
+#     lon1 = lon1[:, np.newaxis]
+#     loc_match_matrix = haversine(lon1, lat1, lon2, lat2) < match_dist
+#     
+#     i_loc_matrix = np.array(np.meshgrid(i_2, i_1)) # Matrices of indices
+#     i_loc_match = i_loc_matrix[:,loc_match_matrix]
+#     
+#     return i_loc_match[0], i_loc_match[1]
 
 if __name__ == '__main__':
     pass

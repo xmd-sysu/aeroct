@@ -27,7 +27,7 @@ def load_files(date, forecast_time, src_path=None):
     forecast_time: (int) The number of hours ahead for the forecast.
         Possible choices: 0, 3, 6, 9, 12, 15, 18, 21, 24.
     src_path: (Optional) (str) The file path containing the extracted forecast files.
-        Default: /scratch/{USER}/aeroct/global-nwp/
+        Default: '/scratch/{USER}/aeroct/global-nwp/'
     '''
     if src_path is None:
         src_path=scratch_path
