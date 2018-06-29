@@ -52,7 +52,7 @@ def extract_from_mass(date, fc_time, out_path):
     os.system('moo select {0} -f {1} {2}'.format(q_um, src_uri, extract_dir))
 
 
-def download_data_day(date, forecast_time, out_path=None, force=True):
+def download_data_day(date, forecast_time, out_path=None, force=False):
     '''
     Download the AOD forecast data for the given date from MASS. The location of the
     saved files can be chosen.
@@ -72,7 +72,7 @@ def download_data_day(date, forecast_time, out_path=None, force=True):
     
     # Check to see if the data has already been retrieved
     if (len(os.popen('ls {0}*{1}*_{2}* 2> /dev/null'.format(out_path, date, fc)).read()) \
-        > 1) & (force is False):
+        > 1) & (force == False):
         print('Files already extracted.')
         return
     

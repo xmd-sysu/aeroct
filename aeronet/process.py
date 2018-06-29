@@ -56,6 +56,10 @@ def process_data(aeronet_df, date, wavelength=550):
     '''
     date = datetime.strptime(date, '%Y%m%d')
     
+    # Drop rows with nan values
+    if (wavelength >= 450) & (wavelength <= 550):
+        aeronet_df = aeronet_df[np.isfinite(aeronet_df['Total_AOD_500nm[tau_a]'])]
+    
     aod = interpolate_aod(aeronet_df, wavelength)
     lat = np.array(aeronet_df['Site_Latitude(Degrees)'])
     lon = np.array(aeronet_df['Site_Longitude(Degrees)'])
