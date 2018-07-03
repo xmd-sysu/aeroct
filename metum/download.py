@@ -68,12 +68,13 @@ def download_data_day(date, forecast_time, out_path=None, force=False):
     '''
     if out_path is None:
         out_path = ext_path
-    fc = str(forecast_time)
+    fc = str(forecast_time).zfill(3)
     
-    # Check to see if the data has already been retrieved
-    if (len(os.popen('ls {0}*{1}*_{2}* 2> /dev/null'.format(out_path, date, fc)).read()) \
-        > 1) & (force == False):
-        print('Files already extracted.')
+    # Check to see if the data has already been retrieved.
+    # NOTE: only checks date, not day before.
+    if (len(os.popen('ls {0}*{1}*_{2:03d}* 2> /dev/null'.format(out_path, date, 
+                                    forecast_time+3)).read()) > 1) & (force == False):
+        print('UM AOD files already extracted.')
         return
     
     if (date == None) | (datetime.strptime(date, '%Y%m%d') > datetime(2015,02,03)):

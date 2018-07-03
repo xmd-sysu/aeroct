@@ -143,10 +143,12 @@ class DataFrame():
                 in_lat_ar = (self.latitudes < lat_grid_bounds[i_lat + 1]) & \
                             (self.latitudes > lat_grid_bounds[i_lat])
                 in_grid = in_lat_ar * in_lon_grid
+                grid_data = self.data * in_grid
+                grid_data = np.where(grid_data!=0, grid_data, np.nan)
                 
                 # Take the average and standard deviation for each grid point
-                aod_grid_avg[i_lat] = np.mean(self.data * in_grid, axis=1)
-                aod_grid_std[i_lat] = np.mean(self.data**2 * in_grid, axis=1) \
+                aod_grid_avg[i_lat] = np.nanmean(grid_data, axis=1)
+                aod_grid_std[i_lat] = np.nanmean(grid_data**2, axis=1) \
                                         - aod_grid_avg[i_lat]**2
             
             if plot_type == 'grid':
@@ -186,12 +188,16 @@ class MatchFrame():
         self.grid = grid                    # Has a grid in space and time? (forecast)
         self.data_sets = data_sets          # A tuple of the names of the data sets
         
+        # Flattened
+        self.data_f = np.array([self.data[0].ravel(), self.data[0].ravel()])
+        self.std_f = np.array([self.data_std[0].ravel(), self.data_std[0].ravel()])
+        
         # Stats
-        self.RMS = np.sqrt(np.mean((self.data[1] - self.data[0])**2))   # Root mean square
-        self.R_SLOPE, self.R_INTERCEPT, self.R = \                      # Regression and Pearson's
-            stats.linregress(self.data[0], self.data[1])[:3]            # correlation coefficient
-        self.BIAS_MEAN = np.mean(self.data[1] - self.data[0])           # y - x mean
-        self.BIAS_STD = np.std(self.data[1] - self.data[0])             # y - x standard deviation
+        self.RMS = np.sqrt(np.mean((self.data_f[1] - self.data_f[0])**2))   # Root mean square
+        self.R_SLOPE, self.R_INTERCEPT, self.R = \
+            stats.linregress(self.data_f[0], self.data_f[1])[:3]            # Regression and Pearson's correlation coefficient
+        self.BIAS_MEAN = np.mean(self.data_f[1] - self.data_f[0])           # y - x mean
+        self.BIAS_STD = np.std(self.data_f[1] - self.data_f[0])             # y - x standard deviation
     
     
     def datetimes(self):
@@ -252,9 +258,10 @@ class MatchFrame():
         fig = plt.figure()
         
         if error == True:
-            plt.errorbar(self.data[0], self.data[1], self.data_std[1], self.data_std[0], 'ro', ecolor='gray')
+            plt.errorbar(self.data_f[0], self.data_f[1], self.std_f[1], self.std_f[0],
+                         'ro', ecolor='gray')
         else:
-            plt.plot(self.data[0], self.data[1], 'ro')
+            plt.plot(self.data_f[0], self.data_f[1], 'ro')
         
         high = np.nanmax(self.data)
         low = np.nanmin(self.data)
@@ -328,8 +335,8 @@ class MatchFrame():
             lon_grid = np.arange(lon[0] + grid_size/2, lon[1], grid_size)
             lon_grid, lat_grid = np.meshgrid(lon_grid, lat_grid)
             
-            # Find if each point of data lies within each grid point. This is stored in a
-            # boolean array with indices: latitude, longitude, data frame index.
+            # Find if each point of data lies within each grid point. This is stored in
+            # boolean arrays for each latitude. 1st index: lon, 2nd: df2 index
             lat_grid_bounds = np.arange(lat[0], lat[1] + grid_size/10, grid_size)
             lon_grid_bounds = np.arange(lon[0], lon[1] + grid_size/10, grid_size)
             
@@ -342,10 +349,12 @@ class MatchFrame():
                 in_lat_ar = (self.latitudes < lat_grid_bounds[i_lat + 1]) & \
                             (self.latitudes > lat_grid_bounds[i_lat])
                 in_grid = in_lat_ar * in_lon_grid
+                grid_data = aod_diff * in_grid
+                grid_data = np.where(grid_data!=0, grid_data, np.nan)
                 
                 # Take the average and standard deviation for each grid point
-                aod_grid_avg[i_lat] = np.mean(aod_diff * in_grid, axis=1)
-                aod_grid_std[i_lat] = np.mean(aod_diff**2 * in_grid, axis=1) \
+                aod_grid_avg[i_lat] = np.nanmean(grid_data, axis=1)
+                aod_grid_std[i_lat] = np.nanmean(grid_data**2, axis=1) \
                                         - aod_grid_avg[i_lat]**2
             
             if plot_type == 'grid':
@@ -360,7 +369,7 @@ class MatchFrame():
             plt.show()
 
 
-def load(data_set, date, forecast_time=0, src=None, out_dir=scratch_path+'downloads/', save=True):
+def load(data_set, date, forecast_time=0, src=None, dir_path=scratch_path+'downloads/', save=True):
     '''
     Load a data frame for a given date using data from either AERONET, MODIS, or the
     Unified Model (metum). This will allow it to be matched and compared with other data
@@ -376,23 +385,25 @@ def load(data_set, date, forecast_time=0, src=None, out_dir=scratch_path+'downlo
     src: str, optional (Default: None)
         The source to retrieve the data from.
         (Currently unavailable)
-    out_dir: str, optional (Default: '/scratch/{USER}/aeroct/downloads/')
+    dir_path: str, optional (Default: '/scratch/{USER}/aeroct/downloads/')
         The directory in which to save downloaded data.
     save: bool, optional (Default: True)
         Choose whether to save any downloaded data.
     '''
-    if out_dir[-1] != '/':
-        out_dir = out_dir + '/'
+    if dir_path[-1] != '/':
+        dir_path = dir_path + '/'
     
     if data_set == 'aeronet':
-        if not os.path.exists('{}AERONET_{}'.format(out_dir, date)):
+        if not os.path.exists('{}AERONET_{}'.format(dir_path, date)):
             print('Downloading AERONET data for ' + date +'.')
             aod_string = aeronet.download_data_day(date)
             if save == True:
-                with open('{}AERONET_{}'.format(out_dir, date), 'w') as w:
+                os.system('mkdir {} 2> /dev/null'.format(dir_path))
+                os.system('touch {}AERONET_{}'.format(dir_path, date))
+                with open('{}AERONET_{}'.format(dir_path, date), 'w') as w:
                     pickle.dump(aod_string, w, -1)
         else:
-            with open('{}AERONET_{}'.format(out_dir, date), 'r') as r:
+            with open('{}AERONET_{}'.format(dir_path, date), 'r') as r:
                     aod_string = pickle.load(r)
         
         aod_df = aeronet.parse_data(aod_string)
@@ -402,14 +413,16 @@ def load(data_set, date, forecast_time=0, src=None, out_dir=scratch_path+'downlo
         return DataFrame(*parameters, data_set=data_set)
     
     elif data_set == 'modis':
-        if not os.path.exists('{}MODIS_{}'.format(out_dir, date)):
+        if not os.path.exists('{}MODIS_{}'.format(dir_path, date)):
             print('Downloading MODIS data for ' + date +'.')
             aod_array = modis.retrieve_data_day(date)
             if save == True:
-                with open('{}MODIS_{}'.format(out_dir, date), 'w') as w:
+                os.system('mkdir {} 2> /dev/null'.format(dir_path))
+                os.system("touch '{}MODIS_{}'".format(dir_path, date))
+                with open('{}MODIS_{}'.format(dir_path, date), 'w') as w:
                     pickle.dump(aod_array, w, -1)
         else:
-            with open('{}MODIS_{}'.format(out_dir, date), 'r') as r:
+            with open('{}MODIS_{}'.format(dir_path, date), 'r') as r:
                     aod_array = pickle.load(r)
         
         print('Processing MODIS data...', end='')
@@ -418,33 +431,38 @@ def load(data_set, date, forecast_time=0, src=None, out_dir=scratch_path+'downlo
         return DataFrame(*parameters, data_set=data_set)
     
     elif data_set == 'metum':
-        metum.download_data_day(date, forecast_time)
+        metum.download_data_day(date, forecast_time, dir_path)
         print('Loading files.')
-        aod_cube = metum.load_files(date, forecast_time, out_dir)
+        aod_cube = metum.load_files(date, forecast_time, dir_path)
         print('Processing Unified Model data...', end='')
         parameters = metum.process_data(aod_cube, date, forecast_time)
         print('Complete.')
-        return DataFrame(*parameters, data_set=data_set, gridded=True)
+        return DataFrame(*parameters, data_set=data_set, grid=True)
     
     else:
         print('Invalid data set: {}'.format(data_set))
         return
 
 
-def load_from_file(filename, path=scratch_path+'data_frames'):
-        '''
-        Load the data frame from a file in the chosen location. Note that saving and
-        loading large data frames can take some time.
-        
-        Parameters:
-        filename: str
-            The name of the saved file.
-        path: str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
-            The path to the directory from which to load the file.
-        '''
-        if not os.path.exists(path + filename):
-            raise ValueError, 'File does not exist: {}'.format(path + filename)
-        
-        with open(path + filename, 'r') as reader:
-            data_frame = pickle.load(reader)
-        return data_frame
+def load_from_file(filename, dir_path=scratch_path+'data_frames'):
+    '''
+    Load the data frame from a file in the chosen location. Note that saving and
+    loading large data frames can take some time.
+    
+    Parameters:
+    filename: str
+        The name of the saved file.
+    path: str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
+        The path to the directory from which to load the file.
+    '''
+    if dir_path[-1] != '/':
+        dir_path = dir_path + '/'
+    
+    if not os.path.exists(dir_path + filename):
+        raise ValueError, 'File does not exist: {}'.format(dir_path + filename)
+    
+    print('Loading data frame(s) from {} ...'.format(dir_path + filename), end='')
+    with open(dir_path + filename, 'r') as reader:
+        data_frame = pickle.load(reader)
+    print('Complete')
+    return data_frame

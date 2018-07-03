@@ -10,6 +10,7 @@ TODO: Allow match-up with gridded data.
 '''
 from __future__ import division, print_function
 import numpy as np
+import numpy.ma as ma
 from data_frame import MatchFrame
 
 
@@ -120,6 +121,57 @@ def average_aod(df1, df2, i1, i2, time, min_meas):
     return aod, std, num, lat, lon, time
 
 
+def one_grid_aod(df1, df2, i_t2):
+    '''
+    Match up the locations of data frames 1 and 2. Data frame 1 is gridded while data
+    frame 2 is not. The third argument refers to the indices of frame 2 which match at
+    a given time. The AOD for df2 is then averaged over each grid cell.
+    Output is the average, standard deviation, and number of df2 data points in each grid
+    cell.
+    '''
+    
+    # Ensure the correct dataframes are gridded or not
+    if not (df1.grid == True) & (df2.grid == False):
+        raise TypeError, 'The data frames are of the wrong type. The first must be have \
+                          a grid while the second must not.'
+    
+    # The AOD data will be put on a grid. Firstly get the latitudes and
+    # longitudes of the grid points
+    lat_grid = df1.latitudes
+    lon_grid = df1.longitudes
+    
+    # Find if each point of data in df2 lies within each grid point. This is stored in
+    # boolean arrays for each latitude. 1st index: lon, 2nd: df2 index
+    # The bounds of each grid cell
+    lat_grid_bounds = np.zeros(lat_grid.size + 1)
+    lat_grid_bounds[1:-1] = (lat_grid[:-1] + lat_grid[1:]) / 2
+    lat_grid_bounds[[0,-1]] = 2 * lat_grid[[0,-1]] - lat_grid_bounds[[1,-2]]
+    lon_grid_bounds = np.zeros(lon_grid.size + 1)
+    lon_grid_bounds[1:-1] = (lon_grid[:-1] + lon_grid[1:]) / 2
+    lon_grid_bounds[[0,-1]] = 2 * lon_grid[[0,-1]] - lon_grid_bounds[[1,-2]]
+    
+    in_lon_grid = (df2.longitudes[i_t2] < lon_grid_bounds[1:, np.newaxis]) & \
+                  (df2.longitudes[i_t2] > lon_grid_bounds[:-1, np.newaxis])
+    
+    # Loop over each latitude
+    aod_2_avg = np.zeros((lat_grid.size, lon_grid.size))
+    aod_2_std = np.zeros((lat_grid.size, lon_grid.size))
+    aod_2_num = np.zeros((lat_grid.size, lon_grid.size))
+    for i_lat in np.arange(lat_grid_bounds.size - 1):
+        in_lat_ar = (df2.latitudes[i_t2] < lat_grid_bounds[i_lat + 1]) & \
+                    (df2.latitudes[i_t2] > lat_grid_bounds[i_lat])
+        in_grid = in_lat_ar * in_lon_grid
+        grid_data = df2.data[i_t2] * in_grid
+        grid_data = np.where(grid_data!=0, grid_data, np.nan)
+        
+        # Take the average and standard deviation of df2 AOD in each grid point
+        aod_2_avg[i_lat] = np.nanmean(grid_data, axis=1)
+        aod_2_std[i_lat] = np.nanmean(grid_data**2, axis=1) - aod_2_avg[i_lat]**2
+        aod_2_num[i_lat] = np.sum(~np.isnan(grid_data))
+    
+    return aod_2_avg, aod_2_std, aod_2_num
+
+
 def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
     '''
     This matches up elements in time and space from two data frames with the same date
@@ -144,22 +196,23 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
     
     times, i_time1_bins, i_time2_bins = match_time(df1, df2, time_length)
     
-    # The aod lists will be turned into a 2D numpy array. The first index will give the
-    # data set and the second will give the match-up pair. The time_list will give the
-    # times of each pair and the location lists will give the corresponding locations.
-    aod_list, std_list, num_list = [], [], []
-    lat_list, lon_list, time_list  = [], [], []
+    if (df1.grid is False) & (df2.grid is False):
+        # The aod lists will be turned into a 2D numpy array. The first index will give the
+        # data set and the second will give the match-up pair. The time_list will give the
+        # times of each pair and the location lists will give the corresponding locations.
+        aod_list, std_list, num_list = [], [], []
+        lat_list, lon_list, time_list  = [], [], []
     
-    for i_t, time in enumerate(times):
-        # Indices for the data in each time bin
-        i_t1, i_t2 = i_time1_bins[i_t], i_time2_bins[i_t]
-#         print('Matching data: {:.1f}% complete.'.format(time / times[-1] * 100), end="\r")
-        print('.', end='')
-        
-        if (df1.grid is False) & (df2.grid is False):
-            # Get match-up pairs and their indices
+        for i_t, time in enumerate(times):
+#             print('Matching data: {:.1f}% complete.'.format(time / times[-1] * 100), end="\r")
+            print('.', end='')
+            
+            # Indices for the data in each time bin
+            i_t1, i_t2 = i_time1_bins[i_t], i_time2_bins[i_t]
             lat1, lon1 = df1.latitudes, df1.longitudes
             lat2, lon2 = df2.latitudes, df2.longitudes
+            
+            # Get match-up pairs and their indices
             i1, i2 = match_loc_ungridded(lat1[i_t1], lon1[i_t1], lat2[i_t2], lon2[i_t2],
                                         match_dist, i_t1, i_t2)
             
@@ -171,26 +224,72 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
             num_list.extend(num)
             lat_list.extend(lat)
             lon_list.extend(lon)
-            time_list.extend(time)            
+            time_list.extend(time)
         
-        elif (df1.gridded is False) & (df2.gridded is True):
-            pass
-        elif (df1.gridded is True) & (df2.gridded is False):
-            # Same as above but the other way around
-            pass
-        elif (df1.gridded is True) & (df2.gridded is True):
-            pass
+        print()
+        
+        aod = np.array(aod_list).T
+        std = np.array(std_list).T
+        num = np.array(num_list).T
+        lat = np.array(lat_list)
+        lon = np.array(lon_list)
+        times = np.array(time_list)
+        grid = False
+        
+    elif (df1.grid is True) & (df2.grid is False):
+        aod2 = np.zeros_like(df1.data)
+        std2 = np.zeros_like(df1.data)
+        num2 = np.zeros_like(df1.data)
+        
+        for i_t, time in enumerate(times):
+#             print('Matching data: {:.1f}% complete.'.format(time / times[-1] * 100), end="\r")
+            print('.', end='')
+            
+            # Indices for the data in time bin 2
+            i_t2 = i_time2_bins[i_t]
+            # AOD averaging over each grid cell
+            aod2[i_t], std2[i_t], num2[i_t] = one_grid_aod(df1, df2, i_t2)
+        
+        print()
+        
+        aod = np.array([df1.data, aod2])
+        std = np.array([np.zeros_like(std2), std2])
+        num = np.array([np.ones_like(num2), num2])
+        lat = df1.latitudes
+        lon = df1.longitudes
+        grid = True
     
-    print()
-    aod = np.array(aod_list).T
-    std = np.array(std_list).T
-    num = np.array(num_list).T
-    lat = np.array(lat_list)
-    lon = np.array(lon_list)
-    times = np.array(time_list)
+    elif (df1.grid is False) & (df2.grid is True):
+        # Same as above but the other way around
+        aod1 = np.zeros_like(df2.data)
+        std1 = np.zeros_like(df2.data)
+        num1 = np.zeros_like(df2.data)
+        
+        for i_t, time in enumerate(times):
+#             print('Matching data: {:.1f}% complete.'.format(time / times[-1] * 100), end="\r")
+            print('.', end='')
+            
+            # Indices for the data in each time bin 1
+            i_t1 = i_time1_bins[i_t]
+            # AOD averaging over each grid cell
+            aod1[i_t], std1[i_t], num1[i_t] = one_grid_aod(df2, df1, i_t1)
+        
+        print()
+        
+        aod = np.array([aod1, df2.data])
+        std = np.array([std1, np.zeros_like(std1)])
+        num = np.array([num1, np.ones_like(num1)])
+        lat = df2.latitudes
+        lon = df2.longitudes
+        grid = True
+    
+    elif (df1.grid is True) & (df2.grid is True):
+        pass
+    
     forecasts = (df1.forecast_time, df2.forecast_time)
     data_sets = (df1.data_set, df2.data_set)
-    return MatchFrame(aod, std, num, lat, lon, times, df1.date, df1.wavelength, forecasts, data_sets)
+    return MatchFrame(aod, std, num, lat, lon, times, df1.date, df1.wavelength,
+                      forecasts, data_sets, grid)
     
 
 
