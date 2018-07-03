@@ -14,6 +14,9 @@ import matplotlib.colors as colors
 import cartopy.crs as ccrs
 from datetime import datetime, timedelta
 from scipy import stats
+import iris
+import iris.plot as iplt
+import iris.analysis
 import os
 try:
     import cPickle as pickle
@@ -38,7 +41,7 @@ class DataFrame():
     '''
 
     def __init__(self, data, latitudes, longitudes, times, date, wavelength=550,
-                 forecast_time=None, data_set=None, grid=False):
+                 forecast_time=None, data_set=None, cube=None):
         self.data = data                    # AOD data
         self.longitudes = longitudes        # [degrees]
         self.latitudes = latitudes          # [degrees]
@@ -47,8 +50,21 @@ class DataFrame():
         self.date = date                    # (datetime)
         self.wavelength = wavelength        # [nm]
         self.forecast_time = forecast_time  # [hours]
-        self.grid = grid                    # Has a grid in space and time? (forecast)
         self.data_set = data_set            # The name of the data set
+        self.cube = cube                    # contains iris cube if the from cube class method has been used
+    
+    @classmethod
+    def from_cube(cls, cube, data_set):
+        data = cube.data
+        lats = cube.coord('latitude').points
+        lons = cube.coord('longitude').points
+        times = cube.coord('time').points
+        
+        date = cube.coord('date').points[0]
+        wl = cube.coord('wavelength').points[0]
+        fc_time = cube.coord('forecast_time').points[0]
+        
+        return cls(data, lats, lons, times, date, wl, fc_time, data_set, cube)                
     
     def datetimes(self):
         return [self.date + timedelta(hours=h) for h in self.times]
@@ -103,10 +119,11 @@ class DataFrame():
             The size of the grid squares in degrees if not using indivual sites
         '''
         
-        if self.grid == False:
-            ax = plt.axes(projection=ccrs.PlateCarree())
-            plt.title('Daily AOD for {} from {}'.format(self.date.date(), self.data_set))
-            cmap='Greys'
+        ax = plt.axes(projection=ccrs.PlateCarree())
+        plt.title('Daily AOD for {} from {}'.format(self.date.date(), self.data_set))
+        cmap='Greys'
+        
+        if self.cube == None:
             
             if plot_type == 'sites':
                 # Get the list of data points at each location
@@ -157,10 +174,17 @@ class DataFrame():
             elif plot_type == 'contourf':
                 plt.contourf(lon_grid, lat_grid, aod_grid_avg, norm=colors.LogNorm(),
                             cmap=cmap)
-            
-            ax.coastlines()
-            plt.colorbar(orientation='horizontal')
-            plt.show()
+        
+        else:
+            daily_average_cube = self.cube.collapsed('time', iris.analysis.MEAN)
+            if plot_type == 'grid':
+                iplt.pcolormesh(daily_average_cube, norm=colors.LogNorm(), cmap=cmap)
+            elif plot_type == 'contourf':
+                iplt.contourf(daily_average_cube, norm=colors.LogNorm(), cmap=cmap)
+        
+        ax.coastlines()
+        plt.colorbar(orientation='horizontal')
+        plt.show()
 
 
 class MatchFrame():
@@ -174,7 +198,7 @@ class MatchFrame():
 
     def __init__(self, data, data_std, data_num, latitudes, longitudes, times, date,
                  wavelength=550, forecast_times=(None, None), data_sets=(None, None),
-                 grid=False):
+                 cube=None):
         self.data = data                    # Averaged AOD data
         self.data_std = data_std            # Averaged AOD data standard deviations
         self.data_num = data_num            # Number of values that are averaged
@@ -185,12 +209,12 @@ class MatchFrame():
         self.date = date                    # (datetime)
         self.wavelength = wavelength        # [nm]
         self.forecast_times = forecast_times# [hours] tuple
-        self.grid = grid                    # Has a grid in space and time? (forecast)
+        self.cube = cube                    # Has a grid in space and time? (forecast)
         self.data_sets = data_sets          # A tuple of the names of the data sets
         
         # Flattened
-        self.data_f = np.array([self.data[0].ravel(), self.data[0].ravel()])
-        self.std_f = np.array([self.data_std[0].ravel(), self.data_std[0].ravel()])
+        self.data_f = np.array([self.data[0].ravel(), self.data[1].ravel()])
+        self.std_f = np.array([self.data_std[0].ravel(), self.data_std[1].ravel()])
         
         # Stats
         self.RMS = np.sqrt(np.mean((self.data_f[1] - self.data_f[0])**2))   # Root mean square
@@ -305,7 +329,7 @@ class MatchFrame():
             The size of the grid squares in degrees if not using indivual sites
         '''
         
-        if self.grid == False:
+        if self.cube == None:
             ax = plt.axes(projection=ccrs.PlateCarree())
             plt.title('Daily AOD difference between {1} & {2} for {0}'\
                       .format(self.date.date(), self.data_sets[1], self.data_sets[0]))
@@ -342,7 +366,7 @@ class MatchFrame():
             
             aod_grid_avg = np.zeros_like(lat_grid)
             aod_grid_std = np.zeros_like(lat_grid)
-            print(self.longitudes)
+            
             in_lon_grid = (self.longitudes < lon_grid_bounds[1:, np.newaxis]) & \
                           (self.longitudes > lon_grid_bounds[:-1, np.newaxis])
             for i_lat in np.arange(lat_grid_bounds.size - 1):
@@ -435,13 +459,12 @@ def load(data_set, date, forecast_time=0, src=None, dir_path=scratch_path+'downl
         print('Loading files.')
         aod_cube = metum.load_files(date, forecast_time, dir_path)
         print('Processing Unified Model data...', end='')
-        parameters = metum.process_data(aod_cube, date, forecast_time)
+        aod_cube = metum.process_data(aod_cube, date, forecast_time)
         print('Complete.')
-        return DataFrame(*parameters, data_set=data_set, grid=True)
+        return DataFrame.from_cube(aod_cube, data_set)
     
     else:
-        print('Invalid data set: {}'.format(data_set))
-        return
+        raise ValueError, 'Invalid data set: {}'.format(data_set)
 
 
 def load_from_file(filename, dir_path=scratch_path+'data_frames'):

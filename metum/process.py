@@ -77,26 +77,31 @@ def process_data(aod_cube, date, forecast_time):
     if type(date) is not datetime:
         date = datetime.strptime(date, '%Y%m%d')
     
-    # Keep the data in 3D
-    aod_data = aod_cube.data
+    # Change the time to be hours since 00:00:00 on date
+    hours1970 = aod_cube.coord('time').points   # hours since 1970-1-1
     
-    # Axes of data
-    hours1970 = aod_cube.coord('time').points     # Hours since 1970-1-1
-    lat = aod_cube.coord('latitude').points
-    lon = aod_cube.coord('longitude').points
-    
-    # Get the hours since 00:00:00 on date for each time coordinate
     time = np.zeros_like(hours1970)
     for i_h, hour in enumerate(hours1970):
         dt = datetime(1970, 1, 1) + timedelta(hours=hour)
         time[i_h] = (dt - date).days * 24 + (dt - date).seconds / 3600
     
+    aod_cube.coord('time').points = time
+    
+    # Add meta-data to cube
+    aod_cube.coord('forecast_period').rename('forecast_time')
+    
+    date_coord = iris.coords.AuxCoord(date, long_name='date')
+    aod_cube.add_aux_coord(date_coord)
+    
     wl = wavelength[aod_cube.coord('pseudo_level').points[0]]
+    wl_coord = iris.coords.AuxCoord(wl, long_name='wavelength', units='nm')
+    aod_cube.add_aux_coord(wl_coord)
      
-    return [aod_data, lat, lon, time, date, wl, forecast_time]
+    return aod_cube
 
 
 if __name__ == '__main__':
-    cube = load_files(24)
+    cube = load_files('20180623', 6)
+    process_data(cube, '20180623', 6)
     print(cube)
 #     

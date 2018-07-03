@@ -121,19 +121,19 @@ def average_aod(df1, df2, i1, i2, time, min_meas):
     return aod, std, num, lat, lon, time
 
 
-def one_grid_aod(df1, df2, i_t2):
+def one_cube_aod(df1, df2, i_t2):
     '''
-    Match up the locations of data frames 1 and 2. Data frame 1 is gridded while data
+    Match up the locations of data frames 1 and 2. Data frame 1 is a cube while data
     frame 2 is not. The third argument refers to the indices of frame 2 which match at
     a given time. The AOD for df2 is then averaged over each grid cell.
     Output is the average, standard deviation, and number of df2 data points in each grid
     cell.
     '''
     
-    # Ensure the correct dataframes are gridded or not
-    if not (df1.grid == True) & (df2.grid == False):
+    # Ensure the correct dataframes are cubes or not
+    if not (df1.cube != None) & (df2.cube == None):
         raise TypeError, 'The data frames are of the wrong type. The first must be have \
-                          a grid while the second must not.'
+                          a cube while the second must not.'
     
     # The AOD data will be put on a grid. Firstly get the latitudes and
     # longitudes of the grid points
@@ -196,7 +196,7 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
     
     times, i_time1_bins, i_time2_bins = match_time(df1, df2, time_length)
     
-    if (df1.grid is False) & (df2.grid is False):
+    if (df1.cube == None) & (df2.cube == None):
         # The aod lists will be turned into a 2D numpy array. The first index will give the
         # data set and the second will give the match-up pair. The time_list will give the
         # times of each pair and the location lists will give the corresponding locations.
@@ -234,9 +234,9 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
         lat = np.array(lat_list)
         lon = np.array(lon_list)
         times = np.array(time_list)
-        grid = False
+        cube = None
         
-    elif (df1.grid is True) & (df2.grid is False):
+    elif (df1.cube != None) & (df2.cube == None):
         aod2 = np.zeros_like(df1.data)
         std2 = np.zeros_like(df1.data)
         num2 = np.zeros_like(df1.data)
@@ -248,7 +248,7 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
             # Indices for the data in time bin 2
             i_t2 = i_time2_bins[i_t]
             # AOD averaging over each grid cell
-            aod2[i_t], std2[i_t], num2[i_t] = one_grid_aod(df1, df2, i_t2)
+            aod2[i_t], std2[i_t], num2[i_t] = one_cube_aod(df1, df2, i_t2)
         
         print()
         
@@ -257,9 +257,9 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
         num = np.array([np.ones_like(num2), num2])
         lat = df1.latitudes
         lon = df1.longitudes
-        grid = True
+        cube = True
     
-    elif (df1.grid is False) & (df2.grid is True):
+    elif (df1.cube == None) & (df2.cube != None):
         # Same as above but the other way around
         aod1 = np.zeros_like(df2.data)
         std1 = np.zeros_like(df2.data)
@@ -272,7 +272,7 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
             # Indices for the data in each time bin 1
             i_t1 = i_time1_bins[i_t]
             # AOD averaging over each grid cell
-            aod1[i_t], std1[i_t], num1[i_t] = one_grid_aod(df2, df1, i_t1)
+            aod1[i_t], std1[i_t], num1[i_t] = one_cube_aod(df2, df1, i_t1)
         
         print()
         
@@ -281,15 +281,15 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
         num = np.array([num1, np.ones_like(num1)])
         lat = df2.latitudes
         lon = df2.longitudes
-        grid = True
+        cube = True #!
     
-    elif (df1.grid is True) & (df2.grid is True):
+    elif (df1.cube != None) & (df2.cube != None):
         pass
     
     forecasts = (df1.forecast_time, df2.forecast_time)
     data_sets = (df1.data_set, df2.data_set)
     return MatchFrame(aod, std, num, lat, lon, times, df1.date, df1.wavelength,
-                      forecasts, data_sets, grid)
+                      forecasts, data_sets, cube)
     
 
 
