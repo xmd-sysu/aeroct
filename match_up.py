@@ -7,7 +7,6 @@ Created on Jun 27, 2018
 @author: savis
 
 TODO: Allow match-up with gridded data.
-TODO: Create another function to average the AOD data to remove the large else statement.
 '''
 from __future__ import division, print_function
 import numpy as np
@@ -91,19 +90,20 @@ def average_aod(df1, df2, i1, i2, time, min_meas):
     # The data frame with the fewest locations will be used for the locations of the
     # averaged AOD data. So need to ensure they are the right way around.
     if df1.latitudes.size > df2.latitudes.size:
-        out = average_aod(df2, df1, i2, i1)
-        out[:3] = out[:3,::-1]
-        return out
+        out = average_aod(df2, df1, i2, i1, time, min_meas)
+        aod = out[0][::-1]
+        std = out[1][::-1]
+        num = out[2][::-1]
+        return aod, std, num, out[3], out[4], out[5]
     
     lat1, lon1 = df1.latitudes, df1.longitudes
     
     lat1_uniq, i_uniq1 = np.unique(lat1[i1], return_index=True)
     lon1_uniq = lon1[i1][i_uniq1]
-    time = np.full_like(lat1_uniq, time)
     
     # Take the averages and standard deviations at each unique location
     bool_matrix = (lat1[i1] == lat1_uniq[:,np.newaxis]) & (lon1[i1] == lon1_uniq[:,np.newaxis])
-    aod, std, num = [], [], []
+    aod, std, num, lat, lon = [], [], [], [], []
     for i_match in bool_matrix:
         df1_data = df1.data[i1[i_match]]
         df2_data = df2.data[i2[i_match]]
@@ -113,8 +113,11 @@ def average_aod(df1, df2, i1, i2, time, min_meas):
             aod.append([np.average(df1_data), np.average(df2_data)])
             std.append([np.std(df1_data), np.std(df2_data)])
             num.append([df1_data.size, df2_data.size])
+            lat.append(lat1[i1[i_match]][0])
+            lon.append(lon1[i1[i_match]][0])
+    time = np.full_like(lat, time)
     
-    return aod, std, num, lat1_uniq, lon1_uniq, time
+    return aod, std, num, lat, lon, time
 
 
 def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
@@ -153,7 +156,7 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
 #         print('Matching data: {:.1f}% complete.'.format(time / times[-1] * 100), end="\r")
         print('.', end='')
         
-        if (df1.gridded is False) & (df2.gridded is False):
+        if (df1.grid is False) & (df2.grid is False):
             # Get match-up pairs and their indices
             lat1, lon1 = df1.latitudes, df1.longitudes
             lat2, lon2 = df2.latitudes, df2.longitudes

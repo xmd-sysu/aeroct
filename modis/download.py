@@ -14,7 +14,6 @@ TODO: Write a method to download the data from the site as an alternative method
 '''
 
 import os
-from metdb import obs
 import pwd
 from datetime import datetime, timedelta
 
@@ -35,6 +34,7 @@ def retrieve_data_range(start, stop):
     stop: (str or datetime) the time from which to finish extracting data. If a string
         is used then it must be in the format YYYYMMDD/HHMM.
     '''
+    from metdb import obs
     
     if type(start) is datetime:
         start = start.strftime('%Y%m%d/%H%MZ')
