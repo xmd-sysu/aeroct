@@ -11,10 +11,58 @@ TODO: Allow match-up with gridded data.
 from __future__ import division, print_function
 import numpy as np
 import numpy.ma as ma
+from scipy.spatial import cKDTree
+import sys
 from data_frame import MatchFrame
 
 
-is_equal = lambda a, b: ((a - b) < a / 10000) & ((b - a) < a / 10000)
+def getnn(d1, d2, r, k=5):
+    """
+    Search nearest neighbors between two coordinate catalogues. See
+    https://docs.scipy.org/doc/scipy/reference/generated/
+    scipy.spatial.cKDTree.query.html
+
+    Parameters
+    ----------
+    d1, d2 : array_like, last dimension self.m
+        Arrays of points to query (in (n, 2)).
+
+    r : nonnegative float
+        Return only neighbors within this distance. This is used to prune
+        tree searches, so if you are doing a series of nearest-neighbor
+        queries, it may help to supply the distance to the nearest neighbor of
+        the most recent point.
+
+    k : list of integer or integer
+        The list of k-th nearest neighbors to return. If k is an integer
+        it is treated as a list of [1, ... k] (range(1, k+1)). Note that
+        the counting starts from 1.
+
+    Returns
+    -------
+    id1 : ndarray of ints
+        The locations of the neighbors in self.data. If d1 has shape
+        tuple+(self.m,), then id1 has shape tuple+(k,). When k == 1, the last
+        dimension of the output is squeezed. Missing neighbors are indicated
+        with self.n.
+    d : array of floats
+        The distances to the nearest neighbors. If d1 has shape tuple+(self.m,),
+        then d has shape tuple+(k,). When k == 1, the last dimension of the
+        output is squeezed. Missing neighbors are indicated with infinite
+        distances.
+
+    Example:
+        >>> Lon1 = numpy.random.random(2000)
+        >>> Lat1 = numpy.random.random(2000)
+        >>> Lon2 = numpy.random.random(20)
+        >>> Lat2 = numpy.random.random(20)
+        >>> d1 = numpy.asarray(zip(Lon1, Lat1))
+        >>> d2 = numpy.asarray(zip(Lon2, Lat2))
+        >>> i, d = getnn(d1, d2, 0.1, k=3)
+    """
+    t = cKDTree(d1)
+    d, idx = t.query(d2, k=k, eps=0, p=2, distance_upper_bound=r)
+    return idx, d
 
 
 def match_time(df1, df2, time_length):
@@ -90,7 +138,7 @@ def average_aod(df1, df2, i1, i2, time, min_meas):
     
     # The data frame with the fewest locations will be used for the locations of the
     # averaged AOD data. So need to ensure they are the right way around.
-    if df1.latitudes.size > df2.latitudes.size:
+    if df1.data.size > df2.data.size:
         out = average_aod(df2, df1, i2, i1, time, min_meas)
         aod = out[0][::-1]
         std = out[1][::-1]
@@ -121,57 +169,6 @@ def average_aod(df1, df2, i1, i2, time, min_meas):
     return aod, std, num, lat, lon, time
 
 
-def one_cube_aod(df1, df2, i_t2):
-    '''
-    Match up the locations of data frames 1 and 2. Data frame 1 is a cube while data
-    frame 2 is not. The third argument refers to the indices of frame 2 which match at
-    a given time. The AOD for df2 is then averaged over each grid cell.
-    Output is the average, standard deviation, and number of df2 data points in each grid
-    cell.
-    '''
-    
-    # Ensure the correct dataframes are cubes or not
-    if not (df1.cube != None) & (df2.cube == None):
-        raise TypeError, 'The data frames are of the wrong type. The first must be have \
-                          a cube while the second must not.'
-    
-    # The AOD data will be put on a grid. Firstly get the latitudes and
-    # longitudes of the grid points
-    lat_grid = df1.latitudes
-    lon_grid = df1.longitudes
-    
-    # Find if each point of data in df2 lies within each grid point. This is stored in
-    # boolean arrays for each latitude. 1st index: lon, 2nd: df2 index
-    # The bounds of each grid cell
-    lat_grid_bounds = np.zeros(lat_grid.size + 1)
-    lat_grid_bounds[1:-1] = (lat_grid[:-1] + lat_grid[1:]) / 2
-    lat_grid_bounds[[0,-1]] = 2 * lat_grid[[0,-1]] - lat_grid_bounds[[1,-2]]
-    lon_grid_bounds = np.zeros(lon_grid.size + 1)
-    lon_grid_bounds[1:-1] = (lon_grid[:-1] + lon_grid[1:]) / 2
-    lon_grid_bounds[[0,-1]] = 2 * lon_grid[[0,-1]] - lon_grid_bounds[[1,-2]]
-    
-    in_lon_grid = (df2.longitudes[i_t2] < lon_grid_bounds[1:, np.newaxis]) & \
-                  (df2.longitudes[i_t2] > lon_grid_bounds[:-1, np.newaxis])
-    
-    # Loop over each latitude
-    aod_2_avg = np.zeros((lat_grid.size, lon_grid.size))
-    aod_2_std = np.zeros((lat_grid.size, lon_grid.size))
-    aod_2_num = np.zeros((lat_grid.size, lon_grid.size))
-    for i_lat in np.arange(lat_grid_bounds.size - 1):
-        in_lat_ar = (df2.latitudes[i_t2] < lat_grid_bounds[i_lat + 1]) & \
-                    (df2.latitudes[i_t2] > lat_grid_bounds[i_lat])
-        in_grid = in_lat_ar * in_lon_grid
-        grid_data = df2.data[i_t2] * in_grid
-        grid_data = np.where(grid_data!=0, grid_data, np.nan)
-        
-        # Take the average and standard deviation of df2 AOD in each grid point
-        aod_2_avg[i_lat] = np.nanmean(grid_data, axis=1)
-        aod_2_std[i_lat] = np.nanmean(grid_data**2, axis=1) - aod_2_avg[i_lat]**2
-        aod_2_num[i_lat] = np.sum(~np.isnan(grid_data))
-    
-    return aod_2_avg, aod_2_std, aod_2_num
-
-
 def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
     '''
     This matches up elements in time and space from two data frames with the same date
@@ -180,19 +177,26 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
     minute time frame and a radius of 25 km.
     
     Parameters:
-    df1, df2: (AeroCT data frame) The two data frames to match up
-    time_length: (float, optional) The timeframe over which data will be matched and
-        averaged in hours.    Default: 0.5 (hours)
-    match_dist: (int, optional) The radius for which data will be matched and averaged in
-        kilometers.    Default: 25 (km)
-    min_measurements: (int, optional) The minimum number of measurements required to take
-        into account the average.    Default: 5
+    df1, df2 : AeroCT data frame
+        The two data frames to match up.
+    time_length: float, optional (Default: 0.5 (hours))
+        The time over which data will be matched and averaged in hours.
+    match_dist : int, optional (Default: 25 (km))
+        The radius for which data will be matched and averaged in kilometers.
+    min_measurements : int, optional (Default: 5)
+        The minimum number of measurements required to take into account the average.    
     '''
+    
+    forecasts = (df1.forecast_time, df2.forecast_time)
+    data_sets = (df1.data_set, df2.data_set)
     
     if df1.date != df2.date:
         raise ValueError, 'The dates of the data frames do not match.'
     if df1.wavelength != df2.wavelength:
         raise ValueError, 'The wavelengths of the data frames do not match.'
+    
+    # Convert match_dist from km into degrees
+    match_dist = np.arcsin(match_dist / 6371)
     
     times, i_time1_bins, i_time2_bins = match_time(df1, df2, time_length)
     
@@ -202,36 +206,56 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
         # times of each pair and the location lists will give the corresponding locations.
         aod_list, std_list, num_list = [], [], []
         lat_list, lon_list, time_list  = [], [], []
-    
+        
+        print('Matching data: ', end='')
         for i_t, time in enumerate(times):
-#             print('Matching data: {:.1f}% complete.'.format(time / times[-1] * 100), end="\r")
-            print('.', end='')
+            print('{:.1f}% '.format(time / times[-1] * 100), end='')
             
-            # Indices for the data in each time bin
+            # Data in each time bin, nan is appended for any outside index references
+            # given by getnn() 
             i_t1, i_t2 = i_time1_bins[i_t], i_time2_bins[i_t]
-            lat1, lon1 = df1.latitudes, df1.longitudes
-            lat2, lon2 = df2.latitudes, df2.longitudes
+            aod1 = np.append(df1.data[i_t1], np.nan)
+            lon1 = df1.longitudes[i_t1]
+            lat1 = df1.latitudes[i_t1]
+            print(i_t2)
             
-            # Get match-up pairs and their indices
-            i1, i2 = match_loc_ungridded(lat1[i_t1], lon1[i_t1], lat2[i_t2], lon2[i_t2],
-                                        match_dist, i_t1, i_t2)
+            # For each location of the data frame with fewer points (d2) find the indices
+            # of the nearest 10 points within match_dist using cKDTree.
+            df1_ll = np.array([lon1, lat1]).T
+            df2_ll = np.array([df2.longitudes[i_t2], df2.latitudes[i_t2]]).T
+            id1, dist = getnn(df1_ll, df2_ll, r=match_dist, k=10)
             
-            aod, std, num, lat, lon, time = average_aod(df1, df2, i1, i2, time,
-                                                        min_measurements)
+            # Remove any rows with no nearest neighbours
+            include_row = np.isfinite(dist[:,0])
+            id1 = id1[include_row]
+            dist = dist[include_row]
+            i_t2 = i_t2[include_row]
+            aod2 = df2.data[i_t2]
+            lon2 = df2.longitudes[i_t2]
+            lat2 = df2.latitudes[i_t2]
             
-            aod_list.extend(aod)
-            std_list.extend(std)
-            num_list.extend(num)
-            lat_list.extend(lat)
-            lon_list.extend(lon)
-            time_list.extend(time)
+            # Get the AOD data for each of the indices returned above and mask any values
+            # for which there is not a nearest neighbour
+            aod1 = ma.masked_where(~np.isfinite(dist), aod1[id1])
+            
+            # Take the averages and standard deviations of df2 for each location
+            aod1_avg = np.nanmean(aod1, axis=1)
+            aod1_std = np.nanstd(aod1, axis=1)
+            aod1_num = np.sum(np.isfinite(dist), axis=1)
+            
+            aod_list.extend([aod1_avg, aod2])
+            std_list.extend([aod1_std, np.zeros_like(aod2)])
+            num_list.append([aod1_num, np.ones_like(aod2)])
+            lon_list.extend(lon2)
+            lat_list.extend(lat2)
+            time_list.extend(np.full_like(aod2, time))
         
         print()
-        
         aod = np.array(aod_list).T
         std = np.array(std_list).T
         num = np.array(num_list).T
         lat = np.array(lat_list)
+        print(lat)
         lon = np.array(lon_list)
         times = np.array(time_list)
         cube = None
@@ -248,7 +272,7 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
             # Indices for the data in time bin 2
             i_t2 = i_time2_bins[i_t]
             # AOD averaging over each grid cell
-            aod2[i_t], std2[i_t], num2[i_t] = one_cube_aod(df1, df2, i_t2)
+            #aod2[i_t], std2[i_t], num2[i_t] = one_cube_aod(df1, df2, i_t2)
         
         print()
         
@@ -272,7 +296,7 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
             # Indices for the data in each time bin 1
             i_t1 = i_time1_bins[i_t]
             # AOD averaging over each grid cell
-            aod1[i_t], std1[i_t], num1[i_t] = one_cube_aod(df2, df1, i_t1)
+            #aod1[i_t], std1[i_t], num1[i_t] = one_cube_aod(df2, df1, i_t1)
         
         print()
         
@@ -286,8 +310,6 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
     elif (df1.cube != None) & (df2.cube != None):
         pass
     
-    forecasts = (df1.forecast_time, df2.forecast_time)
-    data_sets = (df1.data_set, df2.data_set)
     return MatchFrame(aod, std, num, lat, lon, times, df1.date, df1.wavelength,
                       forecasts, data_sets, cube)
     
@@ -312,5 +334,65 @@ def collocate(df1, df2, time_length=0.5, match_dist=25, min_measurements=5):
 #     time_ind_matrix = np.array(np.meshgrid(times2_ind, times1_ind)) # Matrices of indices
 #     time_match_ind = time_ind_matrix[:,time_match_matrix]
 
+
+# def old_one_cube_aod(df1, df2, i_t2):
+#     '''
+#     Match up the locations of data frames 1 and 2. Data frame 1 is a cube while data
+#     frame 2 is not. The third argument refers to the indices of frame 2 which match at
+#     a given time. The AOD for df2 is then averaged over each grid cell.
+#     Output is the average, standard deviation, and number of df2 data points in each grid
+#     cell.
+#     '''
+#     
+#     # Ensure the correct dataframes are cubes or not
+#     if not (df1.cube != None) & (df2.cube == None):
+#         raise TypeError, 'The data frames are of the wrong type. The first must be have \
+#                           a cube while the second must not.'
+#     
+#     # The AOD data will be put on a grid. Firstly get the latitudes and
+#     # longitudes of the grid points
+#     lat_grid = df1.latitudes
+#     lon_grid = df1.longitudes
+#     
+#     # Find if each point of data in df2 lies within each grid point. This is stored in
+#     # boolean arrays for each latitude. 1st index: lon, 2nd: df2 index
+#     # The bounds of each grid cell
+#     lat_grid_bounds = np.zeros(lat_grid.size + 1)
+#     lat_grid_bounds[1:-1] = (lat_grid[:-1] + lat_grid[1:]) / 2
+#     lat_grid_bounds[[0,-1]] = 2 * lat_grid[[0,-1]] - lat_grid_bounds[[1,-2]]
+#     lon_grid_bounds = np.zeros(lon_grid.size + 1)
+#     lon_grid_bounds[1:-1] = (lon_grid[:-1] + lon_grid[1:]) / 2
+#     lon_grid_bounds[[0,-1]] = 2 * lon_grid[[0,-1]] - lon_grid_bounds[[1,-2]]
+#     
+#     in_lon_grid = (df2.longitudes[i_t2] < lon_grid_bounds[1:, np.newaxis]) & \
+#                   (df2.longitudes[i_t2] > lon_grid_bounds[:-1, np.newaxis])
+#     
+#     # Loop over each latitude
+#     aod_2_avg = np.zeros((lat_grid.size, lon_grid.size))
+#     aod_2_std = np.zeros((lat_grid.size, lon_grid.size))
+#     aod_2_num = np.zeros((lat_grid.size, lon_grid.size))
+#     for i_lat in np.arange(lat_grid_bounds.size - 1):
+#         in_lat_ar = (df2.latitudes[i_t2] < lat_grid_bounds[i_lat + 1]) & \
+#                     (df2.latitudes[i_t2] > lat_grid_bounds[i_lat])
+#         in_grid = in_lat_ar * in_lon_grid
+#         grid_data = df2.data[i_t2] * in_grid
+#         grid_data = np.where(grid_data!=0, grid_data, np.nan)
+#         
+#         # Take the average and standard deviation of df2 AOD in each grid point
+#         aod_2_avg[i_lat] = np.nanmean(grid_data, axis=1)
+#         aod_2_std[i_lat] = np.nanmean(grid_data**2, axis=1) - aod_2_avg[i_lat]**2
+#         aod_2_num[i_lat] = np.sum(~np.isnan(grid_data))
+#     
+#     return aod_2_avg, aod_2_std, aod_2_num
+
 if __name__ == '__main__':
-    pass
+    Lon1 = np.random.random(2000)
+    Lat1 = np.random.random(2000)
+    Lon2 = np.random.random(20)
+    Lat2 = np.random.random(20)
+    d1 = np.asarray(zip(Lon1, Lat1))
+    d2 = np.asarray(zip(Lon2, Lat2))
+    i, d = getnn(d1, d2, 0.1, k=3)
+    print(i)
+    print(d)
+    print(d1[i])

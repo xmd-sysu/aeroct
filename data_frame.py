@@ -42,6 +42,7 @@ class DataFrame():
 
     def __init__(self, data, latitudes, longitudes, times, date, wavelength=550,
                  forecast_time=None, data_set=None, cube=None):
+        
         self.data = data                    # AOD data
         self.longitudes = longitudes        # [degrees]
         self.latitudes = latitudes          # [degrees]
