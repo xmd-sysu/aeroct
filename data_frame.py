@@ -37,6 +37,9 @@ class DataFrame():
 
     def __init__(self, data, latitudes, longitudes, times, date, wavelength=550,
                  forecast_time=None, data_set=None, cube=None):
+        # Ensure longitudes are in range [-180, 180]
+        longitudes = longitudes.copy()
+        longitudes[longitudes > 180] -= 360
         
         self.data = data                    # AOD data
         self.longitudes = longitudes        # [degrees]
@@ -326,17 +329,20 @@ def load(data_set, date, forecast_time=0, src=None, dir_path=scratch_path+'downl
         (Currently unavailable)
     dir_path: str, optional (Default: '/scratch/{USER}/aeroct/downloads/')
         The directory in which to save downloaded data.
-    save: bool, optional (Default: True)
-        Choose whether to save any downloaded data.
+    save: bool or str, optional (Default: True)
+        Choose whether to save any downloaded data. If it is 'f' then it will download
+        and save, even if the file already exists.
     '''
     if dir_path[-1] != '/':
         dir_path = dir_path + '/'
     
     if data_set == 'aeronet':
-        if not os.path.exists('{}AERONET_{}'.format(dir_path, date)):
+        dir_path = dir_path + 'AERONET/'
+        
+        if (not os.path.exists('{}AERONET_{}'.format(dir_path, date))) | (save == 'f'):
             print('Downloading AERONET data for ' + date +'.')
             aod_string = aeronet.download_data_day(date)
-            if save == True:
+            if (save == True) | (save == 'f'):
                 os.system('mkdir {} 2> /dev/null'.format(dir_path))
                 os.system('touch {}AERONET_{}'.format(dir_path, date))
                 with open('{}AERONET_{}'.format(dir_path, date), 'w') as w:
@@ -352,10 +358,12 @@ def load(data_set, date, forecast_time=0, src=None, dir_path=scratch_path+'downl
         return DataFrame(*parameters, data_set=data_set)
     
     elif data_set == 'modis':
-        if not os.path.exists('{}MODIS_{}'.format(dir_path, date)):
+        dir_path = dir_path + 'MODIS/'
+        
+        if (not os.path.exists('{}MODIS_{}'.format(dir_path, date))) | (save == 'f'):
             print('Downloading MODIS data for ' + date +'.')
             aod_array = modis.retrieve_data_day(date)
-            if save == True:
+            if (save == True) | (save == 'f'):
                 os.system('mkdir {} 2> /dev/null'.format(dir_path))
                 os.system("touch '{}MODIS_{}'".format(dir_path, date))
                 with open('{}MODIS_{}'.format(dir_path, date), 'w') as w:
@@ -370,7 +378,13 @@ def load(data_set, date, forecast_time=0, src=None, dir_path=scratch_path+'downl
         return DataFrame(*parameters, data_set=data_set)
     
     elif data_set == 'metum':
-        metum.download_data_day(date, forecast_time, dir_path)
+        dir_path = dir_path + 'UM/'
+        
+        force = False
+        if save == 'f':
+            force = True
+        
+        metum.download_data_day(date, forecast_time, dir_path, force)
         print('Loading files.')
         aod_cube = metum.load_files(date, forecast_time, dir_path)
         print('Processing Unified Model data...', end='')

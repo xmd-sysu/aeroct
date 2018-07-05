@@ -84,7 +84,6 @@ def process_data(aod_cube, date, forecast_time):
     for i_h, hour in enumerate(hours1970):
         dt = datetime(1970, 1, 1) + timedelta(hours=hour)
         time[i_h] = (dt - date).days * 24 + (dt - date).seconds / 3600
-    
     aod_cube.coord('time').points = time
     
     # Add meta-data to cube
