@@ -12,6 +12,7 @@ from __future__ import division, print_function
 import sys
 import warnings
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.spatial import cKDTree
 from data_frame import MatchFrame
 
@@ -72,6 +73,8 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
     Return the AOD average, standard deviation, number of points, longitude, latitude
     and time for each matched pair.
     '''
+    K = 10  # Number of nearest neighbours to find of each site
+    
     # Bin the time
     t_mult = 30 / match_time
     s_time = np.rint(df_s.times * t_mult) / t_mult
@@ -93,49 +96,78 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
     for t in times:
         a_lats_t = df_a.latitudes[a_time == t]
         site_lats = np.unique(df_a.latitudes)[:, np.newaxis]
-        which_loc = (a_lats_t == site_lats.repeat(len(a_lats_t), axis=1))
-        site_aod = df_a.data[a_time == t] * which_loc
+        # from_site is a matrix of booleans, the 1st index: site, 2nd: data point
+        from_site = (a_lats_t == site_lats.repeat(len(a_lats_t), axis=1))
+        site_aod = np.ma.masked_where(~from_site, df_a.data[a_time == t] * from_site)
         
         a_aod_avg.append(np.mean(site_aod, axis=1))
         a_aod_std.append(np.std(site_aod, axis=1))
-        a_aod_num.append(np.sum(which_loc, axis=1))
+        a_aod_num.append(np.sum(from_site, axis=1))
     
     a_aod_avg = np.array(a_aod_avg)
     a_aod_std = np.array(a_aod_std)
     a_aod_num = np.array(a_aod_num)
     lats, i_loc = np.unique(df_a.latitudes, return_index=True)
-    lons = df_a.latitudes[i_loc]
+    lons = df_a.longitudes[i_loc]
     
-    # FIND NEARBY SATELLITE DATA
-    # For each aeronet location find the indices of the nearest 10 points within
-    # match_rad using cKDTree.
-    d_s_ll = np.array([df_s.longitudes, df_s.latitudes]).T
-    d_a_ll = np.array([lons, lats]).T
-    print(d_s_ll)
-    i_s_nn, dist = getnn(d_s_ll, d_a_ll, match_rad, k=10)
+    # INCLUDE ONLY THE SITES WITH NEARBY SATELLITE DATA
+    # For each aeronet location find the nearest neighbour
+    s_ll = np.array([df_s.longitudes, df_s.latitudes]).T
+    a_ll = np.array([lons, lats]).T
+    dist = getnn(s_ll, a_ll, match_rad, k=1)[1]
     
-    # Add nan to prevent out of array references from getnn()
-    s_aod = np.append(df_s.data, np.nan)
-    s_time = np.append(df_s.times, np.nan)
+    # Ignore sites with no nearest neighbour
+    has_neighbour = np.isfinite(dist[:])
+    a_aod_avg = a_aod_avg[:, has_neighbour]
+    a_aod_std = a_aod_std[:, has_neighbour]
+    a_aod_num = a_aod_num[:, has_neighbour]
+    lons = lons[has_neighbour]
+    lats = lats[has_neighbour]
+    a_ll = a_ll[has_neighbour]
     
-    # Ignore sites with no nearest neighbours
-    has_neighbours = np.isfinite(dist[:,0])
-    a_aod_avg = a_aod_avg[:, has_neighbours]
-    a_aod_std = a_aod_std[:, has_neighbours]
-    a_aod_num = a_aod_num[:, has_neighbours]
-    lons = lons[has_neighbours]
-    lats = lats[has_neighbours]
-    i_s_nn = i_s_nn[has_neighbours]
-    dist = dist[has_neighbours]
+    # FOR EACH REMAINING SITE FIND THE AVERAGE AOD AT EACH TIME
+    s_aod_avg = np.zeros_like(a_aod_avg)
+    s_aod_std = np.zeros_like(a_aod_std)
+    s_aod_num = np.zeros_like(a_aod_num)
     
-    # Suppress warnings from averaging over empty arrays
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
+    for i_t, t in enumerate(times):
+        # Add nan to prevent out of array references from getnn()
+        s_aod_t = np.append(df_s.data[s_time == t], np.nan)
+        s_ll_t = s_ll[s_time == t]
         
-        # AVERAGE SATELLITE DATA
-        print(s_aod[i_s_nn][:,0])
+        # For each site find the indices of the nearest 10 satellite points within
+        # match_rad using cKDTree.
+        i_s_nn, dist = getnn(s_ll_t, a_ll, match_rad, k=K)
+        
+        # Suppress warnings from averaging over empty arrays
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            
+            # AVERAGE SATELLITE DATA
+            s_aod_avg[i_t] = np.nanmean(s_aod_t[i_s_nn], axis=1)
+            s_aod_std[i_t] = np.nanstd(s_aod_t[i_s_nn], axis=1)
+            s_aod_num[i_t] = np.sum(np.isfinite(dist), axis=1)
     
+    # REARANGE THE OUTPUT TO BE IN THE REQUIRED FORMAT
+    # Reshape the longitudes, latitudes, and times to be the shape of the grid
+    [i_1, i_2] = np.indices(a_aod_avg.shape)
+    times = times[i_1]
+    lons, lats = lons[i_2], lats[i_2]
     
+    # Unravel the arrays
+    avg = np.array([s_aod_avg.ravel(), a_aod_avg.ravel()])
+    std = np.array([s_aod_std.ravel(), a_aod_std.ravel()])
+    num = np.array([s_aod_num.ravel(), a_aod_num.ravel()])
+    times = times.ravel()
+    lons, lats = lons.ravel(), lats.ravel()
+    
+    # Return only elements for which there is both satellite and aeronet data
+    r = (num[0] > 0) & (num[1] > 0)
+    return [avg[:,r], std[:,r], num[:,r], lons[r], lats[r], times[r]]
+
+
+def model_anet_match(df_m, df_a, match_time, match_rad):
+    pass
 
 
 def collocate(df1, df2, match_time=15, match_rad=25):
@@ -170,13 +202,21 @@ def collocate(df1, df2, match_time=15, match_rad=25):
     if (df1.cube == None) & (df2.cube == None):
         # Satellite, aeronet match-up
         
-        if df1.data.size > df2.data.size:
-            sat_anet_match(df1, df2, match_time, match_rad)
+        if df2.data_set == 'aeronet':
+            # params = [aod, std, num, lon, lat, time]
+            params = sat_anet_match(df1, df2, match_time, match_rad)
+            
+        elif df1.data_set == 'aeronet':
+            params = sat_anet_match(df2, df1, match_time, match_rad)
+            param012 = [params[i][::-1] for i in range(3)]
+            params = param012.extend(params[3:])
         
+        [aod, std, num, lon, lat, time] = params
         
-        
-        
-        
+        return MatchFrame(aod, std, num, lon, lat, time, df1.date,
+                          df1.wavelength, forecasts, data_sets)
+    
+    elif (df1.cube != )
         
         
         
@@ -477,7 +517,7 @@ if __name__ == '__main__':
     Lat2 = np.random.random(20)
     d1 = np.asarray(zip(Lon1, Lat1))
     d2 = np.asarray(zip(Lon2, Lat2))
-    i, d = getnn(d1, d2, 0.1, k=3)
+    i, d = getnn(d1, d2, 0.1, k=2)
     print(i)
     print(d)
     print(d1[i])

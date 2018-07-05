@@ -3,20 +3,14 @@ Created on Jun 22, 2018
 
 @author: savis
 
-TODO: Add an attribute for if the data frames require testing for nearby times or
-    locations.
 '''
 
 from __future__ import print_function, division
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.colors as colors
 import cartopy.crs as ccrs
 from datetime import datetime, timedelta
 from scipy import stats
-import iris
-import iris.plot as iplt
-import iris.analysis
 import os
 try:
     import cPickle as pickle
@@ -30,6 +24,7 @@ import metum
 scratch_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
 div0 = lambda a, b: np.divide(a, b, out=np.zeros_like(a), where=b!=0)
+
 
 class DataFrame():
     '''
@@ -54,11 +49,12 @@ class DataFrame():
         self.data_set = data_set            # The name of the data set
         self.cube = cube                    # contains iris cube if the from cube class method has been used
     
+    
     @classmethod
     def from_cube(cls, cube, data_set):
         data = cube.data
-        lats = cube.coord('latitude').points
         lons = cube.coord('longitude').points
+        lats = cube.coord('latitude').points
         times = cube.coord('time').points
         
         date = cube.coord('date').points[0]
@@ -66,6 +62,7 @@ class DataFrame():
         fc_time = cube.coord('forecast_time').points[0]
         
         return cls(data, lats, lons, times, date, wl, fc_time, data_set, cube)                
+    
     
     def datetimes(self):
         return [self.date + timedelta(hours=h) for h in self.times]
@@ -102,90 +99,7 @@ class DataFrame():
         with open(path + filename + str(i).zfill(2), 'w') as writer:
             pickle.dump(self, writer, -1)
         print('Data frame saved successfully to {}'.format(path + filename + str(i).zfill(2)))
-        
-    def map_plot(self, lat=(-90,90), lon=(-180,180), plot_type='grid', grid_size=1):
-        '''
-        This can be used to plot the daily average of the AOD either at individual sites
-        or on a grid.
-        
-        Parameters:
-        lat: tuple, optional (Default: (-90, 90))
-            A tuple of the latitude bounds of the plot in degrees.
-        lon: tuple, optional (Default: (-180, 180))
-            A tuple of the longitude bounds of the plot in degrees.
-        plot_type: str, optional (Default: 'grid')
-            The type of plot to produce. 'sites' for a plot of individual sites, 'grid'
-            for a meshgrid plot, 'contourf' for a filled contour plot.
-        grid_size: float, optional (Default: 1)
-            The size of the grid squares in degrees if not using indivual sites
-        '''
-        
-        ax = plt.axes(projection=ccrs.PlateCarree())
-        plt.title('Daily AOD for {} from {}'.format(self.date.date(), self.data_set))
-        cmap='Greys'
-        
-        if self.cube == None:
-            
-            if plot_type == 'sites':
-                # Get the list of data points at each location
-                site_lons, i_site = np.unique(self.longitudes, return_index=True)
-                site_lats = self.latitudes[i_site]
-                in_sites = site_lons[:, np.newaxis] == self.longitudes
-                # Average the AOD at each site and take std
-                aod_site_avg = np.mean(self.data * in_sites, axis=1)
-                aod_site_std = np.mean(self.data**2 * in_sites, axis=1) - aod_site_avg**2
-                
-                plt.scatter(site_lons, site_lats, c=aod_site_avg, norm=colors.LogNorm(),
-                            cmap=cmap, s=100)
-                ax.coastlines()
-                plt.colorbar(orientation='horizontal')
-                plt.show()
-                return
-            
-            # The AOD data will be put on a grid. Firstly get the latitudes and
-            # longitudes of the grid points
-            lat_grid = np.arange(lat[0] + grid_size/2,  lat[1], grid_size)
-            lon_grid = np.arange(lon[0] + grid_size/2, lon[1], grid_size)
-            lon_grid, lat_grid = np.meshgrid(lon_grid, lat_grid)
-            
-            # Find if each point of data lies within each grid point. This is stored in a
-            # boolean array with indices: latitude, longitude, data frame index.
-            lat_grid_bounds = np.arange(lat[0], lat[1] + grid_size/10, grid_size)
-            lon_grid_bounds = np.arange(lon[0], lon[1] + grid_size/10, grid_size)
-            
-            aod_grid_avg = np.zeros_like(lat_grid)
-            aod_grid_std = np.zeros_like(lat_grid)
-            in_lon_grid = (self.longitudes < lon_grid_bounds[1:, np.newaxis]) & \
-                          (self.longitudes > lon_grid_bounds[:-1, np.newaxis])
-            for i_lat in np.arange(lat_grid_bounds.size - 1):
-                in_lat_ar = (self.latitudes < lat_grid_bounds[i_lat + 1]) & \
-                            (self.latitudes > lat_grid_bounds[i_lat])
-                in_grid = in_lat_ar * in_lon_grid
-                grid_data = self.data * in_grid
-                grid_data = np.where(grid_data!=0, grid_data, np.nan)
-                
-                # Take the average and standard deviation for each grid point
-                aod_grid_avg[i_lat] = np.nanmean(grid_data, axis=1)
-                aod_grid_std[i_lat] = np.nanmean(grid_data**2, axis=1) \
-                                        - aod_grid_avg[i_lat]**2
-            
-            if plot_type == 'grid':
-                plt.pcolormesh(lon_grid, lat_grid, aod_grid_avg, norm=colors.LogNorm(),
-                            cmap=cmap)
-            elif plot_type == 'contourf':
-                plt.contourf(lon_grid, lat_grid, aod_grid_avg, norm=colors.LogNorm(),
-                            cmap=cmap)
-        
-        else:
-            daily_average_cube = self.cube.collapsed('time', iris.analysis.MEAN)
-            if plot_type == 'grid':
-                iplt.pcolormesh(daily_average_cube, norm=colors.LogNorm(), cmap=cmap)
-            elif plot_type == 'contourf':
-                iplt.contourf(daily_average_cube, norm=colors.LogNorm(), cmap=cmap)
-        
-        ax.coastlines()
-        plt.colorbar(orientation='horizontal')
-        plt.show()
+
 
 
 class MatchFrame():
@@ -197,7 +111,7 @@ class MatchFrame():
     forecast time (for models) are stored as attributes.
     '''
 
-    def __init__(self, data, data_std, data_num, latitudes, longitudes, times, date,
+    def __init__(self, data, data_std, data_num, longitudes, latitudes, times, date,
                  wavelength=550, forecast_times=(None, None), data_sets=(None, None),
                  cube=None):
         self.data = data                    # Averaged AOD data
