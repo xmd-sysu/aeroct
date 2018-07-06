@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 
 user = os.getenv('USER')
 contact = '{}@metoffice.gov.uk'.format(pwd.getpwnam(user).pw_gecos)
-elements = ['YEAR', 'MNTH', 'DAY', 'HOUR', 'MINT', 'LTTD', 'LNGD', 'AOD_NM550']
+elements = ['YEAR', 'MNTH', 'DAY', 'HOUR', 'MINT', 'LTTD', 'LNGD', 'AOD_NM550', 'ARSL_TYPE']
 
 
 def retrieve_data_range(start, stop):

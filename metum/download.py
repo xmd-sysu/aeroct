@@ -70,10 +70,12 @@ def download_data_day(date, forecast_time, out_path=None, force=False):
         out_path = ext_path
     fc = str(forecast_time).zfill(3)
     
-    # Check to see if the data has already been retrieved.
-    # NOTE: only checks date, not day before.
-    if (len(os.popen('ls {0}*{1}*_{2:03d}* 2> /dev/null'.format(out_path, date, 
-                                    forecast_time+3)).read()) > 1) & (force == False):
+    # Check to see if the data has already been retrieved for date and the day before.
+    date0 = (datetime.strptime(date, '%Y%m%d') - timedelta(1)).strftime('%Y%m%d')
+    day0_query = 'ls {0}*{1}*_{2:03d}* 2> /dev/null'.format(out_path, date0, forecast_time+3)
+    day1_query = 'ls {0}*{1}*_{2:03d}* 2> /dev/null'.format(out_path, date, forecast_time+3)
+    if (len(os.popen(day0_query).read()) > 1) & \
+       (len(os.popen(day1_query).read()) > 1) & (force == False):
         print('UM AOD files already extracted.')
         return
     

@@ -5,9 +5,14 @@ Created on Jul 5, 2018
 '''
 import numpy as np
 from matplotlib import pyplot as plt, colors
-import iris
-from iris import plot as iplt, analysis
 import cartopy.crs as ccrs
+
+# Suppress warnings from importing iris.plot in python 2
+import warnings
+from matplotlib.cbook.deprecation import MatplotlibDeprecationWarning
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", category=MatplotlibDeprecationWarning)
+    from iris import plot as iplt, analysis
 
 
 def plot_anet_site(df, site=0):

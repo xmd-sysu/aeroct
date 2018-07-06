@@ -4,7 +4,6 @@ Created on Jun 22, 2018
 @author: savis
 
 '''
-
 from __future__ import print_function, division
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,6 +22,9 @@ import metum
 
 scratch_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
+# How to output the names of the data sets
+name = {'aeronet': 'AERONET', 'modis': 'MODIS', 'metum': 'Unified Model'}
+
 div0 = lambda a, b: np.divide(a, b, out=np.zeros_like(a), where=b!=0)
 
 
@@ -35,13 +37,14 @@ class DataFrame():
     as attributes. So each forecast time and date requires a new instance.
     '''
 
-    def __init__(self, data, latitudes, longitudes, times, date, wavelength=550,
+    def __init__(self, aod_t, aod_c, latitudes, longitudes, times, date, wavelength=550,
                  forecast_time=None, data_set=None, cube=None):
         # Ensure longitudes are in range [-180, 180]
         longitudes = longitudes.copy()
         longitudes[longitudes > 180] -= 360
         
-        self.data = data                    # AOD data
+        self.aod_t = aod_t                  # Total AOD data
+        self.aod_c = aod_c                  # Coarse mode AOD data
         self.longitudes = longitudes        # [degrees]
         self.latitudes = latitudes          # [degrees]
         self.times = times                  # [hours since 00:00:00 on date]
@@ -55,7 +58,7 @@ class DataFrame():
     
     @classmethod
     def from_cube(cls, cube, data_set):
-        data = cube.data
+        aod_c = cube.data                       # Model data is only for dust
         lons = cube.coord('longitude').points
         lats = cube.coord('latitude').points
         times = cube.coord('time').points
@@ -64,7 +67,7 @@ class DataFrame():
         wl = cube.coord('wavelength').points[0]
         fc_time = cube.coord('forecast_time').points[0]
         
-        return cls(data, lats, lons, times, date, wl, fc_time, data_set, cube)                
+        return cls(None, aod_c, lats, lons, times, date, wl, fc_time, data_set, cube)                
     
     
     def datetimes(self):
@@ -115,8 +118,8 @@ class MatchFrame():
     '''
 
     def __init__(self, data, data_std, data_num, longitudes, latitudes, times, date,
-                 wavelength=550, forecast_times=(None, None), data_sets=(None, None),
-                 cube=None):
+                 match_time, match_rad, wavelength=550, forecast_times=(None, None),
+                 data_sets=(None, None), aod_type=0, cube=None):
         self.data = data                    # Averaged AOD data
         self.data_std = data_std            # Averaged AOD data standard deviations
         self.data_num = data_num            # Number of values that are averaged
@@ -127,8 +130,11 @@ class MatchFrame():
         self.date = date                    # (datetime)
         self.wavelength = wavelength        # [nm]
         self.forecast_times = forecast_times# [hours] tuple
-        self.cube = cube                    # Has a grid in space and time? (forecast)
         self.data_sets = data_sets          # A tuple of the names of the data sets
+        self.aod_type = aod_type          # Whether it is total AOD (0) or coarse mode AOD (1)
+        self.cube = cube                    # Has a grid in space and time? (forecast)
+        self.match_radius = match_rad       # Maximum spacial difference between collocated points
+        self.match_time = match_time        # Maximum time difference between collocated points
         
         # Flattened
         self.data_f = np.array([self.data[0].ravel(), self.data[1].ravel()])
@@ -136,10 +142,10 @@ class MatchFrame():
         
         # Stats
         self.RMS = np.sqrt(np.mean((self.data_f[1] - self.data_f[0])**2))   # Root mean square
-        self.R_SLOPE, self.R_INTERCEPT, self.R = \
-            stats.linregress(self.data_f[0], self.data_f[1])[:3]            # Regression and Pearson's correlation coefficient
         self.BIAS_MEAN = np.mean(self.data_f[1] - self.data_f[0])           # y - x mean
         self.BIAS_STD = np.std(self.data_f[1] - self.data_f[0])             # y - x standard deviation
+        self.R_SLOPE, self.R_INTERCEPT, self.R = \
+            stats.linregress(self.data_f[0], self.data_f[1])[:3]            # Regression and Pearson's correlation coefficient
     
     
     def datetimes(self):
@@ -197,7 +203,7 @@ class MatchFrame():
         if len(self.data_sets) != 2:
             raise ValueError, 'The data frame must be matched-up data from two data sets'
         
-        fig = plt.figure()
+        fig, ax = plt.subplots()
         
         if error == True:
             plt.errorbar(self.data_f[0], self.data_f[1], self.std_f[1], self.std_f[0],
@@ -205,23 +211,41 @@ class MatchFrame():
         else:
             plt.plot(self.data_f[0], self.data_f[1], 'ro')
         
-        high = np.nanmax(self.data)
-        low = np.nanmin(self.data)
-        plt.plot([low, high], [low, high], 'k--')
+        # Regression line
+        x = np.array([0, 10])
+        y = self.R_INTERCEPT + x * self.R_SLOPE
+        plt.plot(x, y, 'g:', lw=1, scalex=False, scaley=False)
         
-        plt.title('Collocated AOD comparison between {1} & {2} for {0}'\
-                      .format(self.date.date(), self.data_sets[1], self.data_sets[0]))
-        plt.xlabel(self.data_sets[0])
-        plt.ylabel(self.data_sets[1])
-        plt.loglog()
-        plt.xlim(low, high)
-        plt.ylim(low, high)
+        # y = x line
+        plt.plot([0, 10], [0, 10], 'k--', scalex=False, scaley=False)
         
-#        # Stats
-#        rms = self.rms()
-#        bias_mean = self.bias_mean()
-#        bias_std = self.bias_std()
-#        plt.text(low + 0.01*diff, high - 0.1*diff, 'RMS: {:.02f}'.format(rms), fontsize=15)
+        # Title and axes 
+        plt.title('Collocated AOD comparison on {0}'.format(self.date.date()))
+        if self.forecast_times[0] != None:
+            plt.xlabel('{} (forecast lead time: {} hours)'\
+                       .format(name[self.data_sets[0]], int(self.forecast_times[0])))
+        else:
+            plt.xlabel(name[self.data_sets[0]])
+        if self.forecast_times[1] != None:
+            plt.ylabel('{} (forecast lead time: {} hours)'\
+                       .format(name[self.data_sets[1]], int(self.forecast_times[1])))
+        else:
+            plt.ylabel(name[self.data_sets[1]])
+        
+        # Stats
+        if stats == True:
+            rms_str = 'RMS: {:.02f}'.format(self.RMS)
+            plt.text(0.03, 0.94, rms_str, fontsize=12, transform=ax.transAxes)
+            bias_mean_str = 'Bias mean: {:.02f}'.format(self.BIAS_MEAN)
+            plt.text(0.03, 0.88, bias_mean_str, fontsize=12, transform=ax.transAxes)
+            bias_std_str = 'Bias std: {:.02f}'.format(self.BIAS_STD)
+            plt.text(0.03, 0.82, bias_std_str, fontsize=12, transform=ax.transAxes)
+            r_str = 'Pearson R: {:.02f}'.format(self.R)
+            plt.text(0.35, 0.94, r_str, fontsize=12, transform=ax.transAxes)
+            slope_str = 'Slope: {:.02f}'.format(self.R_SLOPE)
+            plt.text(0.35, 0.88, slope_str, fontsize=12, transform=ax.transAxes)
+            intercept_str = 'Intercept: {:.02f}'.format(self.R_INTERCEPT)
+            plt.text(0.35, 0.82, intercept_str, fontsize=12, transform=ax.transAxes)
         
         if show == True:
             plt.show()
@@ -311,7 +335,7 @@ class MatchFrame():
             plt.show()
 
 
-def load(data_set, date, forecast_time=0, src=None, dir_path=scratch_path+'downloads/', save=True):
+def load(data_set, date, forecast_time=0, aod_type=0, src=None, dir_path=scratch_path+'downloads/', save=True):
     '''
     Load a data frame for a given date using data from either AERONET, MODIS, or the
     Unified Model (metum). This will allow it to be matched and compared with other data
@@ -324,12 +348,16 @@ def load(data_set, date, forecast_time=0, src=None, dir_path=scratch_path+'downl
         The date for the data that is to be loaded. Specify in format 'YYYYMMDD'.
     forecast_time: int, optional (Default: 0)
         The forecast lead time to use if metum is chosen.
-    src: str, optional (Default: None)
+    aod_type: int, optional (Default: 0)
+        If the data set is MODIS then this gives the data type to return.
+        0: the total AOD is returned.
+        1: the coarse mode AOD is returned (for comparison with UM).
+    src : str, optional (Default: None)
         The source to retrieve the data from.
         (Currently unavailable)
-    dir_path: str, optional (Default: '/scratch/{USER}/aeroct/downloads/')
+    dir_path : str, optional (Default: '/scratch/{USER}/aeroct/downloads/')
         The directory in which to save downloaded data.
-    save: bool or str, optional (Default: True)
+    save : bool or str, optional (Default: True)
         Choose whether to save any downloaded data. If it is 'f' then it will download
         and save, even if the file already exists.
     '''
@@ -373,7 +401,7 @@ def load(data_set, date, forecast_time=0, src=None, dir_path=scratch_path+'downl
                     aod_array = pickle.load(r)
         
         print('Processing MODIS data...', end='')
-        parameters = modis.process_data(aod_array, date)
+        parameters = modis.process_data(aod_array, date, aod_type=aod_type)
         print('Complete.')
         return DataFrame(*parameters, data_set=data_set)
     
