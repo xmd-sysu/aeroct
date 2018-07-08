@@ -81,7 +81,7 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
     match_rad : int
         The radius for which data will be matched and averaged in degrees.
     '''
-    if (type(df_s.aod_t) == type(None)) | (type(df_a.aod_t) == type(None)):
+    if (type(df_s.aod) == type(None)) | (type(df_a.aod) == type(None)):
         raise ValueError('Both data frames must have total AOD data.')
     
     K = 10  # Number of nearest neighbours to find of each site
@@ -110,7 +110,7 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
         a_lats_t = df_a.latitudes[a_time == t]
         # from_site is a matrix of booleans, the 1st index: site, 2nd: data point
         from_site = (a_lats_t == site_lats.repeat(len(a_lats_t), axis=1))
-        site_aod = np.ma.masked_where(~from_site, df_a.aod_t[a_time == t] * from_site)
+        site_aod = np.ma.masked_where(~from_site, df_a.aod[a_time == t] * from_site)
         
         a_aod_avg[i_t] = np.mean(site_aod, axis=1)
         a_aod_std[i_t] = np.std(site_aod, axis=1)
@@ -145,7 +145,7 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
     
     for i_t, t in enumerate(times):
         # Add nan to prevent out of array references from getnn()
-        s_aod_t = np.append(df_s.aod_t[s_time == t], np.nan)
+        s_aod_t = np.append(df_s.aod[s_time == t], np.nan)
         s_ll_t = s_ll[s_time == t]
         
         # For each site find the indices of the nearest 10 satellite points within
@@ -341,13 +341,60 @@ def model_sat_match(df_m, df_s, match_time, match_rad):
             times.append(t)
     times = np.array(times)
     
-    lons, lats, aod, std, num = [], [], [], [], []
+    # NOW GET NEAREST NEIGBOURS TO EACH SATELLITE DATA POINT AT EACH TIME AND AVERAGE
+    lons, lats, time_arr = [], [], []
+    s_aod, s_std, s_num = [], [], []
+    m_aod, m_std, m_num = [], [], []
     
     for i_t, t in enumerate(times):
-        s_lons, s_lats = df_s.longitudes[s_time == t], df_s.latitudes[s_time == t]
+        at_t = (s_time == t)
+        s_lons, s_lats = df_s.longitudes[at_t], df_s.latitudes[at_t]
         s_ll = zip(s_lons, s_lats)
         
-        # Select only the model data with th
+        lons.extend(s_lons)
+        lats.extend(s_lats)
+        time_arr.extend(np.full_like(s_lons, t))
+        s_aod.extend(df_s.aod_c[at_t])
+        s_std.extend(np.zeros_like(s_lons))
+        s_num.extend(np.ones_like(s_lons))
+        
+        # Select only model data with the same latitude and longitude bounds as sat data
+        # and get a 1Dx2 list of longitudes and latitudes to pass to getnn()
+        lon_bounds = [np.min(s_lons), np.max(s_lons)]
+        lat_bounds = [np.min(s_lats), np.max(s_lats)]
+        m_lons, m_lats = df_m.longitudes, df_m.latitudes
+        m_lons_idx = np.nonzero((m_lons >= lon_bounds[0]) & (m_lons <= lon_bounds[1]))
+        m_lats_idx = np.nonzero((m_lats >= lat_bounds[0]) & (m_lats <= lat_bounds[1]))
+        
+        m_aod = df_m.aod_c[i_t, m_lats_idx, m_lons_idx].ravel()
+        m_lons = np.repeat(m_lons[np.newaxis, :], len(m_lats_idx), axis=0).ravel()
+        m_lats = np.repeat(m_lats[:, np.newaxis], len(m_lons_idx), axis=1).ravel()
+        m_ll = zip(m_lons, m_lats)
+        
+        # Add nan to prevent out of array references from getnn()
+        m_aod_t = np.append(m_aod[i_t], np.nan)
+        
+        # For each site find the indices of the nearest 10 satellite points within
+        # match_rad using cKDTree.
+        m_nn_idx, dist = getnn(m_ll, s_ll, match_rad, k=K)
+        
+        # Suppress warnings from averaging over empty arrays
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            
+            # AVERAGE SATELLITE DATA
+            m_aod.extend(np.nanmean(m_aod_t[m_nn_idx], axis=1))
+            m_std.extend(np.nanstd(m_aod_t[m_nn_idx], axis=1))
+            m_num.extend(np.sum(np.isfinite(dist), axis=1))
+    
+    aod = np.array([m_aod, s_aod])
+    std = np.array([m_std, s_std])
+    num = np.array([m_num, s_num])
+    lons, lats, times = np.array(lons), np.array(lats), np.array(time_arr)
+    
+    # Return only elements for which there is both model and satellite data
+    r = (num[0] > 0) & (num[1] > 0)
+    return [aod[:,r], std[:,r], num[:,r], lons[r], lats[r], times[r]]
 
 
 def collocate(df1, df2, match_time=30, match_rad=25):
@@ -372,17 +419,15 @@ def collocate(df1, df2, match_time=30, match_rad=25):
     data_sets = (df1.data_set, df2.data_set)
     
     if df1.date != df2.date:
-        raise ValueError, 'The dates of the data frames do not match.'
+        raise ValueError('The dates of the data frames do not match.')
     if df1.wavelength != df2.wavelength:
-        raise ValueError, 'The wavelengths of the data frames do not match.'
+        raise ValueError('The wavelengths of the data frames do not match.')
     
     # Convert match_dist from km into degrees
     match_rad = np.arcsin(match_rad / 6371) * 180 / np.pi
     
-    #times, i_time1_bins, i_time2_bins = match_time(df1, df2, time_length)
-    
+    # Satellite-AERONET match-up
     if (df1.cube == None) & (df2.cube == None):
-        # Satellite, aeronet match-up
         
         if df2.data_set == 'aeronet':
             # params  has the form [aod, std, num, lon, lat, time]
@@ -396,21 +441,19 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         [aod, std, num, lon, lat, time] = params
         
         return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time, match_rad,
-                          df1.wavelength, forecasts, data_sets, aod_type=0)
+                          df1.wavelength, forecasts, data_sets, coarse_mode=False)
     
+    # Model-AERONET match-up
     elif (df1.cube != None) & (df2.data_set == 'aeronet'):
-        # Model-AERONET match-up
-        
         params = model_anet_match(df1, df2, match_time, match_rad)
         
         [aod, std, num, lon, lat, time] = params
         
         return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time, match_rad,
-                          df1.wavelength, forecasts, data_sets, aod_type=1)
+                          df1.wavelength, forecasts, data_sets, coarse_mode=True)
     
+    # Same as above but the other way around
     elif (df1.data_set == 'aeronet') & (df2.cube != None):
-        # Same as above but the other way around
-        
         params = model_anet_match(df2, df1, match_time, match_rad)
         param012 = [params[i][::-1] for i in range(3)]
         params = param012 + params[3:]
@@ -418,16 +461,29 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         [aod, std, num, lon, lat, time] = params
         
         return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time, match_rad,
-                          df1.wavelength, forecasts, data_sets, aod_type=1)
+                          df1.wavelength, forecasts, data_sets, coarse_mode=True)
     
+    # Model-Satellite match-up
     elif (df1.cube != None) & (df2.cube == None):
-        # Model-Satellite match-up
-        model_sat_match(df1, df2, match_time, match_rad)
+        params = model_sat_match(df1, df2, match_time, match_rad)
+        
+        [aod, std, num, lon, lat, time] = params
+        
+        return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time, match_rad,
+                          df1.wavelength, forecasts, data_sets, coarse_mode=True)
     
+    # Same as above but the other way around
     elif (df1.cube == None) & (df2.cube != None):
-        # Same as above but the other way around
-        model_sat_match(df2, df1, match_time, match_rad)
+        params = model_sat_match(df2, df1, match_time, match_rad)
+        param012 = [params[i][::-1] for i in range(3)]
+        params = param012 + params[3:]
+        
+        [aod, std, num, lon, lat, time] = params
+        
+        return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time, match_rad,
+                          df1.wavelength, forecasts, data_sets, coarse_mode=True)
     
+    # Model-Model match-up
     elif (df1.cube != None) & (df2.cube != None):
         pass
     
@@ -724,8 +780,8 @@ def collocate(df1, df2, match_time=30, match_rad=25):
 
 
 if __name__ == '__main__':
-    Lon1 = np.random.random(2560*1920)
-    Lat1 = np.random.random(2560*1920)
+    Lon1 = np.random.random(2560)
+    Lat1 = np.random.random(2560)
     Lon2 = np.random.random(206)
     Lat2 = np.random.random(206)
     d1 = np.asarray(zip(Lon1, Lat1))

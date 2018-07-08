@@ -37,13 +37,13 @@ class DataFrame():
     as attributes. So each forecast time and date requires a new instance.
     '''
 
-    def __init__(self, aod_t, aod_c, latitudes, longitudes, times, date, wavelength=550,
+    def __init__(self, aod, aod_c, latitudes, longitudes, times, date, wavelength=550,
                  forecast_time=None, data_set=None, cube=None):
         # Ensure longitudes are in range [-180, 180]
         longitudes = longitudes.copy()
         longitudes[longitudes > 180] -= 360
         
-        self.aod_t = aod_t                  # Total AOD data
+        self.aod = aod                      # Total AOD data
         self.aod_c = aod_c                  # Coarse mode AOD data
         self.longitudes = longitudes        # [degrees]
         self.latitudes = latitudes          # [degrees]
@@ -119,7 +119,7 @@ class MatchFrame():
 
     def __init__(self, data, data_std, data_num, longitudes, latitudes, times, date,
                  match_time, match_rad, wavelength=550, forecast_times=(None, None),
-                 data_sets=(None, None), aod_type=0, cube=None):
+                 data_sets=(None, None), coarse_mode=0, cube=None):
         self.data = data                    # Averaged AOD data
         self.data_std = data_std            # Averaged AOD data standard deviations
         self.data_num = data_num            # Number of values that are averaged
@@ -131,7 +131,7 @@ class MatchFrame():
         self.wavelength = wavelength        # [nm]
         self.forecast_times = forecast_times# [hours] tuple
         self.data_sets = data_sets          # A tuple of the names of the data sets
-        self.aod_type = aod_type          # Whether it is total AOD (0) or coarse mode AOD (1)
+        self.coarse_mode = coarse_mode      # Whether it is coarse mode AOD or total AOD
         self.cube = cube                    # Has a grid in space and time? (forecast)
         self.match_radius = match_rad       # Maximum spacial difference between collocated points
         self.match_time = match_time        # Maximum time difference between collocated points
@@ -335,7 +335,8 @@ class MatchFrame():
             plt.show()
 
 
-def load(data_set, date, forecast_time=0, aod_type=0, src=None, dir_path=scratch_path+'downloads/', save=True):
+def load(data_set, date, forecast_time=0, coarse_mode=False, src=None,
+         dl_save=True, dl_dir=scratch_path+'downloads/'):
     '''
     Load a data frame for a given date using data from either AERONET, MODIS, or the
     Unified Model (metum). This will allow it to be matched and compared with other data
@@ -348,35 +349,35 @@ def load(data_set, date, forecast_time=0, aod_type=0, src=None, dir_path=scratch
         The date for the data that is to be loaded. Specify in format 'YYYYMMDD'.
     forecast_time: int, optional (Default: 0)
         The forecast lead time to use if metum is chosen.
-    aod_type: int, optional (Default: 0)
+    coarse_mode: bool, optional (Default: False)
         If the data set is MODIS then this gives the data type to return.
-        0: the total AOD is returned.
-        1: the coarse mode AOD is returned (for comparison with UM).
+        False: the total AOD is returned.
+        True: the coarse mode AOD is returned (for comparison with UM).
     src : str, optional (Default: None)
         The source to retrieve the data from.
         (Currently unavailable)
-    dir_path : str, optional (Default: '/scratch/{USER}/aeroct/downloads/')
-        The directory in which to save downloaded data.
-    save : bool or str, optional (Default: True)
+    dl_save : bool or str, optional (Default: True)
         Choose whether to save any downloaded data. If it is 'f' then it will download
         and save, even if the file already exists.
+    dl_dir : str, optional (Default: '/scratch/{USER}/aeroct/downloads/')
+        The directory in which to save downloaded data.
     '''
-    if dir_path[-1] != '/':
-        dir_path = dir_path + '/'
+    if dl_dir[-1] != '/':
+        dl_dir = dl_dir + '/'
     
     if data_set == 'aeronet':
-        dir_path = dir_path + 'AERONET/'
+        dl_dir = dl_dir + 'AERONET/'
         
-        if (not os.path.exists('{}AERONET_{}'.format(dir_path, date))) | (save == 'f'):
+        if (not os.path.exists('{}AERONET_{}'.format(dl_dir, date))) | (dl_save == 'f'):
             print('Downloading AERONET data for ' + date +'.')
             aod_string = aeronet.download_data_day(date)
-            if (save == True) | (save == 'f'):
-                os.system('mkdir {} 2> /dev/null'.format(dir_path))
-                os.system('touch {}AERONET_{}'.format(dir_path, date))
-                with open('{}AERONET_{}'.format(dir_path, date), 'w') as w:
+            if (dl_save == True) | (dl_save == 'f'):
+                os.system('mkdir {} 2> /dev/null'.format(dl_dir))
+                os.system('touch {}AERONET_{}'.format(dl_dir, date))
+                with open('{}AERONET_{}'.format(dl_dir, date), 'w') as w:
                     pickle.dump(aod_string, w, -1)
         else:
-            with open('{}AERONET_{}'.format(dir_path, date), 'r') as r:
+            with open('{}AERONET_{}'.format(dl_dir, date), 'r') as r:
                     aod_string = pickle.load(r)
         
         aod_df = aeronet.parse_data(aod_string)
@@ -386,35 +387,35 @@ def load(data_set, date, forecast_time=0, aod_type=0, src=None, dir_path=scratch
         return DataFrame(*parameters, data_set=data_set)
     
     elif data_set == 'modis':
-        dir_path = dir_path + 'MODIS/'
+        dl_dir = dl_dir + 'MODIS/'
         
-        if (not os.path.exists('{}MODIS_{}'.format(dir_path, date))) | (save == 'f'):
+        if (not os.path.exists('{}MODIS_{}'.format(dl_dir, date))) | (dl_save == 'f'):
             print('Downloading MODIS data for ' + date +'.')
             aod_array = modis.retrieve_data_day(date)
-            if (save == True) | (save == 'f'):
-                os.system('mkdir {} 2> /dev/null'.format(dir_path))
-                os.system("touch '{}MODIS_{}'".format(dir_path, date))
-                with open('{}MODIS_{}'.format(dir_path, date), 'w') as w:
+            if (dl_save == True) | (dl_save == 'f'):
+                os.system('mkdir {} 2> /dev/null'.format(dl_dir))
+                os.system("touch '{}MODIS_{}'".format(dl_dir, date))
+                with open('{}MODIS_{}'.format(dl_dir, date), 'w') as w:
                     pickle.dump(aod_array, w, -1)
         else:
-            with open('{}MODIS_{}'.format(dir_path, date), 'r') as r:
+            with open('{}MODIS_{}'.format(dl_dir, date), 'r') as r:
                     aod_array = pickle.load(r)
         
         print('Processing MODIS data...', end='')
-        parameters = modis.process_data(aod_array, date, aod_type=aod_type)
+        parameters = modis.process_data(aod_array, date, coarse_mode=coarse_mode)
         print('Complete.')
         return DataFrame(*parameters, data_set=data_set)
     
     elif data_set == 'metum':
-        dir_path = dir_path + 'UM/'
+        dl_dir = dl_dir + 'UM/'
         
         force = False
-        if save == 'f':
+        if dl_save == 'f':
             force = True
         
-        metum.download_data_day(date, forecast_time, dir_path, force)
+        metum.download_data_day(date, forecast_time, dl_dir, force)
         print('Loading files.')
-        aod_cube = metum.load_files(date, forecast_time, dir_path)
+        aod_cube = metum.load_files(date, forecast_time, dl_dir)
         print('Processing Unified Model data...', end='')
         aod_cube = metum.process_data(aod_cube, date, forecast_time)
         print('Complete.')
@@ -432,7 +433,7 @@ def load_from_file(filename, dir_path=scratch_path+'data_frames'):
     Parameters:
     filename: str
         The name of the saved file.
-    path: str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
+    dir_path: str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
         The path to the directory from which to load the file.
     '''
     if dir_path[-1] != '/':
