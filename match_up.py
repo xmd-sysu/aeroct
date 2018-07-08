@@ -341,7 +341,13 @@ def model_sat_match(df_m, df_s, match_time, match_rad):
             times.append(t)
     times = np.array(times)
     
+    lons, lats, aod, std, num = [], [], [], [], []
     
+    for i_t, t in enumerate(times):
+        s_lons, s_lats = df_s.longitudes[s_time == t], df_s.latitudes[s_time == t]
+        s_ll = zip(s_lons, s_lats)
+        
+        # Select only the model data with th
 
 
 def collocate(df1, df2, match_time=30, match_rad=25):
