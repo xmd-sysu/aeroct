@@ -205,11 +205,17 @@ class MatchFrame():
         
         fig, ax = plt.subplots()
         
+        if np.any([(self.data_sets[i] == 'metum') &
+                   (self.data_sets[1-i] == 'modis') for i in [0,1]]):
+            point_fmt = 'r.'
+        else:
+            point_fmt = 'ro'
+        
         if error == True:
             plt.errorbar(self.data_f[0], self.data_f[1], self.std_f[1], self.std_f[0],
-                         'ro', ecolor='gray')
+                         point_fmt, ecolor='gray')
         else:
-            plt.plot(self.data_f[0], self.data_f[1], 'ro')
+            plt.plot(self.data_f[0], self.data_f[1], point_fmt)
         
         # Regression line
         x = np.array([0, 10])

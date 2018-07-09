@@ -343,8 +343,8 @@ def model_sat_match(df_m, df_s, match_time, match_rad):
     
     # NOW GET NEAREST NEIGBOURS TO EACH SATELLITE DATA POINT AT EACH TIME AND AVERAGE
     lons, lats, time_arr = [], [], []
-    s_aod, s_std, s_num = [], [], []
-    m_aod, m_std, m_num = [], [], []
+    s_avg, s_std, s_num = [], [], []
+    m_avg, m_std, m_num = [], [], []
     
     for i_t, t in enumerate(times):
         at_t = (s_time == t)
@@ -354,7 +354,7 @@ def model_sat_match(df_m, df_s, match_time, match_rad):
         lons.extend(s_lons)
         lats.extend(s_lats)
         time_arr.extend(np.full_like(s_lons, t))
-        s_aod.extend(df_s.aod_c[at_t])
+        s_avg.extend(df_s.aod_c[at_t])
         s_std.extend(np.zeros_like(s_lons))
         s_num.extend(np.ones_like(s_lons))
         
@@ -363,16 +363,18 @@ def model_sat_match(df_m, df_s, match_time, match_rad):
         lon_bounds = [np.min(s_lons), np.max(s_lons)]
         lat_bounds = [np.min(s_lats), np.max(s_lats)]
         m_lons, m_lats = df_m.longitudes, df_m.latitudes
-        m_lons_idx = np.nonzero((m_lons >= lon_bounds[0]) & (m_lons <= lon_bounds[1]))
-        m_lats_idx = np.nonzero((m_lats >= lat_bounds[0]) & (m_lats <= lat_bounds[1]))
+        m_lons_idx = np.nonzero((m_lons >= lon_bounds[0]) & (m_lons <= lon_bounds[1]))[0]
+        m_lats_idx = np.nonzero((m_lats >= lat_bounds[0]) & (m_lats <= lat_bounds[1]))[0]
+        m_lons = m_lons[m_lons_idx]
+        m_lats = m_lats[m_lats_idx]
         
-        m_aod = df_m.aod_c[i_t, m_lats_idx, m_lons_idx].ravel()
+        m_aod_t = df_m.aod_c[i_t, m_lats_idx[:, np.newaxis], m_lons_idx].ravel()
         m_lons = np.repeat(m_lons[np.newaxis, :], len(m_lats_idx), axis=0).ravel()
         m_lats = np.repeat(m_lats[:, np.newaxis], len(m_lons_idx), axis=1).ravel()
         m_ll = zip(m_lons, m_lats)
         
         # Add nan to prevent out of array references from getnn()
-        m_aod_t = np.append(m_aod[i_t], np.nan)
+        m_aod_t = np.append(m_aod_t, np.nan)
         
         # For each site find the indices of the nearest 10 satellite points within
         # match_rad using cKDTree.
@@ -383,11 +385,11 @@ def model_sat_match(df_m, df_s, match_time, match_rad):
             warnings.simplefilter("ignore", category=RuntimeWarning)
             
             # AVERAGE SATELLITE DATA
-            m_aod.extend(np.nanmean(m_aod_t[m_nn_idx], axis=1))
+            m_avg.extend(np.nanmean(m_aod_t[m_nn_idx], axis=1))
             m_std.extend(np.nanstd(m_aod_t[m_nn_idx], axis=1))
             m_num.extend(np.sum(np.isfinite(dist), axis=1))
     
-    aod = np.array([m_aod, s_aod])
+    aod = np.array([m_avg, s_avg])
     std = np.array([m_std, s_std])
     num = np.array([m_num, s_num])
     lons, lats, times = np.array(lons), np.array(lats), np.array(time_arr)
