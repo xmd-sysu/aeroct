@@ -11,6 +11,7 @@ import cartopy.crs as ccrs
 from datetime import datetime, timedelta
 from scipy import stats
 import os
+import warnings
 try:
     import cPickle as pickle
 except ModuleNotFoundError:
@@ -37,14 +38,14 @@ class DataFrame():
     as attributes. So each forecast time and date requires a new instance.
     '''
 
-    def __init__(self, aod, aod_c, latitudes, longitudes, times, date, wavelength=550,
+    def __init__(self, aod, aod_d, latitudes, longitudes, times, date, wavelength=550,
                  forecast_time=None, data_set=None, cube=None):
         # Ensure longitudes are in range [-180, 180]
         longitudes = longitudes.copy()
         longitudes[longitudes > 180] -= 360
         
         self.aod = aod                      # Total AOD data
-        self.aod_c = aod_c                  # Coarse mode AOD data
+        self.aod_d = aod_d                  # Dust component of AOD data
         self.longitudes = longitudes        # [degrees]
         self.latitudes = latitudes          # [degrees]
         self.times = times                  # [hours since 00:00:00 on date]
@@ -74,7 +75,7 @@ class DataFrame():
         return [self.date + timedelta(hours=h) for h in self.times]
     
     
-    def dump(self, filename=None, path=scratch_path+'data_frames/'):
+    def dump(self, filename=None, dir_path=scratch_path+'data_frames/'):
         '''
         Save the data frame as a file in the chosen location. Note that saving and
         loading large data frames can take some time.
@@ -82,12 +83,12 @@ class DataFrame():
         Parameters:
         filename: str, optional (Default: '{data_set}_YYYYMMDD_##')
             What to name the saved file.
-        path: str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
+        dir_path: str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
             The path to the directory where the file will be saved.
             
         '''
         # Make directory if it does not exist
-        os.system('mkdir -p {}'.format(path))
+        os.system('mkdir -p {}'.format(dir_path))
         
         if filename != None:
             pass
@@ -97,14 +98,14 @@ class DataFrame():
             raise ValueError, 'data_set attribute invalid. Cannot create filename'
         
         i = 0
-        while os.path.exists(path + filename + str(i).zfill(2)):
+        while os.path.exists(dir_path + filename + str(i).zfill(2)):
             i += 1
         
         # Write file
-        os.system('touch {}'.format(path + filename + str(i).zfill(2)))
-        with open(path + filename + str(i).zfill(2), 'w') as writer:
+        os.system('touch {}'.format(dir_path + filename + str(i).zfill(2)))
+        with open(dir_path + filename + str(i).zfill(2), 'w') as writer:
             pickle.dump(self, writer, -1)
-        print('Data frame saved successfully to {}'.format(path + filename + str(i).zfill(2)))
+        print('Data frame saved successfully to {}'.format(dir_path + filename + str(i).zfill(2)))
 
 
 
@@ -119,7 +120,7 @@ class MatchFrame():
 
     def __init__(self, data, data_std, data_num, longitudes, latitudes, times, date,
                  match_time, match_rad, wavelength=550, forecast_times=(None, None),
-                 data_sets=(None, None), coarse_mode=0, cube=None):
+                 data_sets=(None, None), aod_type=0, cube=None):
         self.data = data                    # Averaged AOD data
         self.data_std = data_std            # Averaged AOD data standard deviations
         self.data_num = data_num            # Number of values that are averaged
@@ -131,7 +132,7 @@ class MatchFrame():
         self.wavelength = wavelength        # [nm]
         self.forecast_times = forecast_times# [hours] tuple
         self.data_sets = data_sets          # A tuple of the names of the data sets
-        self.coarse_mode = coarse_mode      # Whether it is coarse mode AOD or total AOD
+        self.aod_type = aod_type            # Whether it is coarse mode AOD or total AOD
         self.cube = cube                    # Has a grid in space and time? (forecast)
         self.match_radius = match_rad       # Maximum spacial difference between collocated points
         self.match_time = match_time        # Maximum time difference between collocated points
@@ -152,7 +153,7 @@ class MatchFrame():
         return [self.date + timedelta(hours=h) for h in self.times]
     
     
-    def dump(self, filename=None, path=scratch_path+'data_frames/'):
+    def dump(self, filename=None, dir_path=scratch_path+'data_frames/'):
         '''
         Save the data frame as a file in the chosen location. Note that saving and
         loading large data frames can take some time. The filename is returned.
@@ -160,28 +161,29 @@ class MatchFrame():
         Parameters:
         filename: str, optional (Default: '{data_sets}_YYYYMMDD_##')
             What to name the saved file.
-        path: str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
+        dir_path: str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
             The path to the directory where the file will be saved.
         '''
         # Make directory if it does not exist
-        os.system('mkdir -p {}'.format(path))
+        os.system('mkdir -p {}'.format(dir_path))
         
         if filename == None:
+            
             if type(self.data_sets) == tuple:
                 filename = '{}-{}_{}_'.format(self.data_sets[1], self.data_sets[0],
-                                                    self.date.strftime('%Y%m%d'))
+                                                  self.date.strftime('%Y%m%d'))
             else:
                 raise ValueError, 'data_sets attribute invalid. Cannot create filename'
         
         i = 0
-        while os.path.exists(path + filename + str(i).zfill(2)):
+        while os.path.exists(dir_path + filename + str(i).zfill(2)):
             i += 1
         
         # Write file
-        os.system('touch {}'.format(path + filename + str(i).zfill(2)))
-        with open(path + filename + str(i).zfill(2), 'w') as writer:
+        os.system('touch {}'.format(dir_path + filename + str(i).zfill(2)))
+        with open(dir_path + filename + str(i).zfill(2), 'w') as writer:
             pickle.dump(self, writer, -1)
-        print('Data frame saved successfully to {}'.format(path + filename + str(i).zfill(2)))
+        print('Data frame saved successfully to {}'.format(dir_path + filename + str(i).zfill(2)))
         
         return filename
     
@@ -260,7 +262,7 @@ class MatchFrame():
             return fig
     
     
-    def map_plot(self, lat=(-90,90), lon=(-180,180), plot_type='grid', grid_size=1):
+    def map_plot(self, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh', grid_size=2):
         '''
         This can be used to plot the daily average of the AOD either at individual sites
         or on a grid.
@@ -271,77 +273,81 @@ class MatchFrame():
         lon: tuple, optional (Default: (-180, 180))
             A tuple of the longitude bounds of the plot in degrees.
         plot_type: str, optional (Default: 'grid')
-            The type of plot to produce. 'sites' for a plot of individual sites, 'grid'
-            for a meshgrid plot, 'contourf' for a filled contour plot.
+            The type of plot to produce if it does not contain AERONET data. 'pcolormesh'
+            or 'contourf' are possible. If it contains AERONET data then a scatterplot of
+            the sites is plotted.
         grid_size: float, optional (Default: 1)
             The size of the grid squares in degrees if not using indivual sites
         '''
         
-        if self.cube == None:
-            ax = plt.axes(projection=ccrs.PlateCarree())
-            plt.title('Daily AOD difference between {1} & {2} for {0}'\
-                      .format(self.date.date(), self.data_sets[1], self.data_sets[0]))
-            cmap='PuOr'
+        ax = plt.axes(projection=ccrs.PlateCarree())
+        plt.title('Daily AOD difference between {1} & {2} for {0}'\
+                  .format(self.date.date(), self.data_sets[1], self.data_sets[0]))
+        cmap='PuOr'
+        
+        # Find the data within the given bounds
+        in_bounds = (self.longitudes > lon[0]) & (self.longitudes < lon[1]) & \
+                    (self.latitudes > lat[0]) & (self.latitudes < lat[1])
+        lons = self.longitudes[in_bounds]
+        lats = self.latitudes[in_bounds]
+        aod_diff = self.data[1, in_bounds] - self.data[0, in_bounds]
+        
+        # If AERONET is included plot the sites on a map
+        if np.any([self.data_sets[i] == 'aeronet' for i in [0,1]]):
+            # Get the list of data points at each location
+            site_lons, i_site = np.unique(self.longitudes, return_index=True)
+            site_lats = self.latitudes[i_site]
+            in_sites = site_lons[:, np.newaxis] == self.longitudes
+            # Average the AOD at each site and take std
+            aod_site_avg = np.mean(aod_diff * in_sites, axis=1)
+            aod_site_std = np.mean(aod_diff**2 * in_sites, axis=1) - aod_site_avg**2
             
-            aod_diff = self.data[1] - self.data[0]
-            
-            if plot_type == 'sites':
-                # Get the list of data points at each location
-                site_lons, i_site = np.unique(self.longitudes, return_index=True)
-                site_lats = self.latitudes[i_site]
-                in_sites = site_lons[:, np.newaxis] == self.longitudes
-                # Average the AOD at each site and take std
-                aod_site_avg = np.mean(aod_diff * in_sites, axis=1)
-                aod_site_std = np.mean(aod_diff**2 * in_sites, axis=1) - aod_site_avg**2
-                
-                plt.scatter(site_lons, site_lats, c=aod_site_avg, #norm=colors.LogNorm(),
-                            cmap=cmap, s=100)
-                ax.coastlines()
-                plt.colorbar(orientation='horizontal')
-                plt.show()
-                return
-            
-            # The AOD data will be put on a grid. Firstly get the latitudes and
-            # longitudes of the grid points
-            lat_grid = np.arange(lat[0] + grid_size/2,  lat[1], grid_size)
-            lon_grid = np.arange(lon[0] + grid_size/2, lon[1], grid_size)
-            lon_grid, lat_grid = np.meshgrid(lon_grid, lat_grid)
-            
-            # Find if each point of data lies within each grid point. This is stored in
-            # boolean arrays for each latitude. 1st index: lon, 2nd: df2 index
-            lat_grid_bounds = np.arange(lat[0], lat[1] + grid_size/10, grid_size)
-            lon_grid_bounds = np.arange(lon[0], lon[1] + grid_size/10, grid_size)
-            
-            aod_grid_avg = np.zeros_like(lat_grid)
-            aod_grid_std = np.zeros_like(lat_grid)
-            
-            in_lon_grid = (self.longitudes < lon_grid_bounds[1:, np.newaxis]) & \
-                          (self.longitudes > lon_grid_bounds[:-1, np.newaxis])
-            for i_lat in np.arange(lat_grid_bounds.size - 1):
-                in_lat_ar = (self.latitudes < lat_grid_bounds[i_lat + 1]) & \
-                            (self.latitudes > lat_grid_bounds[i_lat])
-                in_grid = in_lat_ar * in_lon_grid
-                grid_data = aod_diff * in_grid
-                grid_data = np.where(grid_data!=0, grid_data, np.nan)
-                
-                # Take the average and standard deviation for each grid point
-                aod_grid_avg[i_lat] = np.nanmean(grid_data, axis=1)
-                aod_grid_std[i_lat] = np.nanmean(grid_data**2, axis=1) \
-                                        - aod_grid_avg[i_lat]**2
-            
-            if plot_type == 'grid':
-                plt.pcolormesh(lon_grid, lat_grid, aod_grid_avg, #norm=colors.LogNorm(),
-                            cmap=cmap)
-            elif plot_type == 'contourf':
-                plt.contourf(lon_grid, lat_grid, aod_grid_avg, #norm=colors.LogNorm(),
-                            cmap=cmap)
-            
+            plt.scatter(site_lons, site_lats, c=aod_site_avg, #norm=colors.LogNorm(),
+                        cmap=cmap, s=100)
             ax.coastlines()
             plt.colorbar(orientation='horizontal')
             plt.show()
+            return
+        
+        # PLOT A GRID
+        # The AOD data will be put on a grid. Firstly get the latitudes and
+        # longitudes of the grid points
+        lat_grid = np.arange((lat[0] + grid_size/2), lat[1], grid_size)
+        lon_grid = np.arange((lon[0] + grid_size/2), lon[1], grid_size)
+        
+        # Now put the lons and lats onto the nearest grid points
+        lon_ints = np.rint((lons - lon[0]) / grid_size + 0.5)
+        lons = lon[0] + (lon_ints - 0.5) * grid_size
+        lat_ints = np.rint((lats - lat[0]) / grid_size + 0.5)
+        lats = lat[0] + (lat_ints - 0.5) * grid_size
+        
+        aod_grid_avg = np.zeros((lat_grid.size, lon_grid.size))
+        aod_grid_std = np.zeros((lat_grid.size, lon_grid.size))
+        
+        for i_lat, lat in enumerate(lat_grid):
+            # For each longitude find the data points at that position
+            # Then average the data for each grid point
+            bool_mat = (lons == lon_grid[:, np.newaxis]) & (lats == np.array(lat))
+            aod_diff_grid = aod_diff * bool_mat
+            aod_diff_grid = np.where(aod_diff_grid!=0, aod_diff_grid, np.nan)
+            
+            # Suppress warnings from averaging over empty arrays
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                aod_grid_avg[i_lat] = np.nanmean(aod_diff_grid, axis=1)
+                aod_grid_std[i_lat] = np.nanstd(aod_diff_grid, axis=1)
+                  
+        if plot_type == 'pcolormesh':
+            plt.pcolormesh(lon_grid.ravel(), lat_grid.ravel(), aod_grid_avg, cmap=cmap)
+        elif plot_type == 'contourf':
+            plt.contourf(lon_grid.ravel(), lat_grid.ravel(), aod_grid_avg, cmap=cmap)
+          
+        ax.coastlines()
+        plt.colorbar(orientation='horizontal')
+        plt.show()
 
 
-def load(data_set, date, forecast_time=0, coarse_mode=False, src=None,
+def load(data_set, date, forecast_time=0, src=None,
          dl_save=True, dl_dir=scratch_path+'downloads/'):
     '''
     Load a data frame for a given date using data from either AERONET, MODIS, or the
@@ -355,10 +361,6 @@ def load(data_set, date, forecast_time=0, coarse_mode=False, src=None,
         The date for the data that is to be loaded. Specify in format 'YYYYMMDD'.
     forecast_time: int, optional (Default: 0)
         The forecast lead time to use if metum is chosen.
-    coarse_mode: bool, optional (Default: False)
-        If the data set is MODIS then this gives the data type to return.
-        False: the total AOD is returned.
-        True: the coarse mode AOD is returned (for comparison with UM).
     src : str, optional (Default: None)
         The source to retrieve the data from.
         (Currently unavailable)
@@ -408,7 +410,7 @@ def load(data_set, date, forecast_time=0, coarse_mode=False, src=None,
                     aod_array = pickle.load(r)
         
         print('Processing MODIS data...', end='')
-        parameters = modis.process_data(aod_array, date, coarse_mode=coarse_mode)
+        parameters = modis.process_data(aod_array, date)
         print('Complete.')
         return DataFrame(*parameters, data_set=data_set)
     

@@ -10,11 +10,14 @@ Created on Jun 25, 2018
 
 from __future__ import division
 from datetime import datetime
+import numpy as np
 
-def process_data(aod_array, date, coarse_mode=False):
+def process_data(aod_array, date):
     '''
     Process the AOD data from a numpy record array into a list that may be passed into a
     data frame so that it may be compared with other data sources.
+    The returned aod_d for dust is a 2x1D array, the first array is the AOD, the second
+    is its indices in the the full array.
     
     Parameter:
     aod_array : rec array
@@ -22,25 +25,21 @@ def process_data(aod_array, date, coarse_mode=False):
     date : str or datetime
         The date for which to retrieve records. Format: YYYYMMDD for strings. Do not
         include a time if a datetime is used.
-    coarse_mode : bool, optional (Default: False)
-        False: the total AOD is returned.
-        True: the coarse mode AOD is returned (for comparison with UM).
     '''
-    
-    if type(coarse_mode) != bool:
-        raise ValueError('Unrecognised value for coarse_mode: {}'.format(coarse_mode))
     
     if type(date) is not datetime:
         date = datetime.strptime(date, '%Y%m%d')
     
     not_mask = aod_array['AOD_NM550'] > 1e-5
     is_dust = aod_array['ARSL_TYPE'] == 1
-    if coarse_mode == False:
-        condition = not_mask
-    else:
-        condition = not_mask & is_dust
+    condition = not_mask
+    condition_d = not_mask & is_dust
     
-    aod = aod_array['AOD_NM550'][condition]
+    condition_idx_dust = aod_array['ARSL_TYPE'][condition] == 1
+    idx_dust = np.indices([aod_array['ARSL_TYPE'][condition].size])[0, condition_idx_dust]
+    
+    aod = aod_array['AOD_NM550'][condition]                     # All AODs
+    aod_d = [aod_array['AOD_NM550'][condition_d], idx_dust]     # Only dust AODs
     lat = aod_array['LTTD'][condition]
     lon = aod_array['LNGD'][condition]
     wl = 550    # wavelength [nm]
@@ -49,7 +48,4 @@ def process_data(aod_array, date, coarse_mode=False):
     time = (aod_array['DAY'][condition] - date.day) * 24 + (aod_array['HOUR'][condition] - date.hour) + \
            (aod_array['MINT'][condition] - date.minute) / 60   # Hours since 00:00:00
     
-    if coarse_mode == False:
-        return [aod, None, lat, lon, time, date, wl]
-    else:
-        return [None, aod, lat, lon, time, date, wl]
+    return [aod, aod_d, lat, lon, time, date, wl]
