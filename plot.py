@@ -3,9 +3,13 @@ Created on Jul 5, 2018
 
 @author: savis
 '''
+import sys
 import numpy as np
 from matplotlib import pyplot as plt, colors
 import cartopy.crs as ccrs
+from scipy.interpolate import griddata
+sys.path.append('/home/h01/savis/workspace/summer')
+import aeroct
 
 # Suppress warnings from importing iris.plot in python 2
 import warnings
@@ -41,7 +45,7 @@ def plot_anet_site(df, site=0):
     plt.show()
     
 
-def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='scatter', show=True, grid_size=1):
+def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='scatter', show=True, grid_size=2):
     '''
     This can be used to plot the daily average of the AOD either at individual sites
     or on a grid.
@@ -63,15 +67,15 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='scatter', show=True, g
     
     fig = plt.figure()
     ax = plt.axes(projection=ccrs.PlateCarree())
-    plt.title('Daily AOD for {} from {}'.format(df.date.date(), df.data_set))
     plt.xlim(lon)
     plt.ylim(lat)
-    cmap='Greys'
     
-    if df.cube == None:
+    if type(df) == aeroct.DataFrame:
+        plt.title('Daily AOD for {} from {}'.format(df.date.date(), df.data_set))
+        cmap='Greys'
         
-        if plot_type == 'sites':
-            # PLOT AOD AT AERONET SITES AS A SCATTER PLOT
+        # PLOT AOD AT AERONET SITES AS A SCATTER PLOT
+        if df.data_set == 'aeronet':
             # Get the list of data points at each location
             site_lons, i_site = np.unique(df.longitudes, return_index=True)
             site_lats = df.latitudes[i_site]
@@ -91,8 +95,8 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='scatter', show=True, g
             else:
                 return fig
         
+        # PLOT THE AOD AT EVERY DATA POINT
         elif plot_type == 'scatter':
-            # PLOT THE AOD AT EVERY DATA POINT
             plt.scatter(df.longitudes, df.latitudes, c=df.data,
                         marker='o', s=(72./fig.dpi)**2)
             ax.coastlines()
@@ -104,33 +108,42 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='scatter', show=True, g
             else:
                 return fig
         
-        # The AOD data will be put on a grid. Firstly get the latitudes and
-        # longitudes of the grid points
-        lat_grid = np.arange(lat[0],  lat[1], grid_size)
-        lon_grid = np.arange(lon[0], lon[1], grid_size)
-        lat_grid, lon_grid = np.meshgrid(lat_grid, lon_grid)
+        # PLOT A GRID
+        # Using scipy.interpolate.griddata
+        # First get the axes
+        lon_grid, lat_grid = np.mgrid[(lon[0] + grid_size/2) : lon[1] : grid_size,
+                                      (lat[0] + grid_size/2) : lat[1] : grid_size]
         
-        # Bin the longitude and latitude
-        lons = np.rint(df.longitudes / grid_size) * grid_size
-        lats = np.rint(df.latitudes / grid_size) * grid_size
+        loc = zip(df.longitudes, df.latitudes)
+        aod_grid_avg = griddata(loc, df.aod, (lon_grid, lat_grid), method='linear')
         
-        # Find if each point of data lies within each grid point. This is stored in a
-        # boolean array with indices: latitude, longitude, data frame index.            
-        aod_grid_avg = np.zeros_like(lat_grid)
-        aod_grid_std = np.zeros_like(lat_grid)
-        for i_lat in np.arange(lon_grid[0].size):
-            in_lon_mat = (lons == lon_grid[:, i_lat, np.newaxis])
-            in_lat_ar = (lats == lat_grid[0, i_lat])                
-            in_grid = in_lat_ar * in_lon_mat
-            print(in_lat_ar)
-            
-            grid_data = df.data * in_grid
-            grid_data = np.where(grid_data!=0, grid_data, np.nan)
-            
-            # Take the average and standard deviation for each grid point
-            aod_grid_avg[:, i_lat] = np.nanmean(grid_data, axis=1)
-#             aod_grid_std[:, i_lat] = np.nanmean(grid_data**2, axis=1) \
-#                                     - aod_grid_avg[i_lat]**2
+#        # The AOD data will be put on a grid. Firstly get the latitudes and
+#        # longitudes of the grid points
+#        lat_grid = np.arange(lat[0],  lat[1], grid_size)
+#        lon_grid = np.arange(lon[0], lon[1], grid_size)
+#        lat_grid, lon_grid = np.meshgrid(lat_grid, lon_grid)
+#        
+#        # Bin the longitude and latitude
+#        lons = np.rint(df.longitudes / grid_size) * grid_size
+#        lats = np.rint(df.latitudes / grid_size) * grid_size
+#        
+#        # Find if each point of data lies within each grid point. This is stored in a
+#        # boolean array with indices: latitude, longitude, data frame index.            
+#        aod_grid_avg = np.zeros_like(lat_grid)
+#        aod_grid_std = np.zeros_like(lat_grid)
+#        for i_lat in np.arange(lon_grid[0].size):
+#            in_lon_mat = (lons == lon_grid[:, i_lat, np.newaxis])
+#            in_lat_ar = (lats == lat_grid[0, i_lat])                
+#            in_grid = in_lat_ar * in_lon_mat
+#            print(in_lat_ar)
+#            
+#            grid_data = df.data * in_grid
+#            grid_data = np.where(grid_data!=0, grid_data, np.nan)
+#            
+#            # Take the average and standard deviation for each grid point
+#            aod_grid_avg[:, i_lat] = np.nanmean(grid_data, axis=1)
+##             aod_grid_std[:, i_lat] = np.nanmean(grid_data**2, axis=1) \
+##                                     - aod_grid_avg[i_lat]**2
         
         if plot_type == 'grid':
             plt.pcolormesh(lon_grid, lat_grid, aod_grid_avg, norm=colors.LogNorm(),
@@ -139,12 +152,74 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='scatter', show=True, g
             plt.contourf(lon_grid, lat_grid, aod_grid_avg, norm=colors.LogNorm(),
                         cmap=cmap)
     
-    else:
-        daily_average_cube = df.cube.collapsed('time', analysis.MEAN)
-        if plot_type == 'grid':
-            iplt.pcolormesh(daily_average_cube, norm=colors.LogNorm(), cmap=cmap)
+    elif type(df) == aeroct.MatchFrame:
+        plt.title('Daily AOD difference between {1} & {2} for {0}'\
+                  .format(df.date.date(), df.data_sets[1], df.data_sets[0]))
+        cmap='PuOr'
+        
+        # Find the data within the given bounds
+        in_bounds = (df.longitudes > lon[0]) & (df.longitudes < lon[1]) & \
+                    (df.latitudes > lat[0]) & (df.latitudes < lat[1])
+        lons = df.longitudes[in_bounds]
+        lats = df.latitudes[in_bounds]
+        aod_diff = df.data[1, in_bounds] - df.data[0, in_bounds]
+        
+        # If AERONET is included plot the sites on a map
+        if np.any([df.data_sets[i] == 'aeronet' for i in [0,1]]):
+            # Get the list of data points at each location
+            site_lons, i_site = np.unique(df.longitudes, return_index=True)
+            site_lats = df.latitudes[i_site]
+            in_sites = site_lons[:, np.newaxis] == df.longitudes
+            # Average the AOD at each site and take std
+            aod_site_avg = np.mean(aod_diff * in_sites, axis=1)
+            aod_site_std = np.mean(aod_diff**2 * in_sites, axis=1) - aod_site_avg**2
+            
+            plt.scatter(site_lons, site_lats, c=aod_site_avg, cmap=cmap, s=100)
+            ax.coastlines()
+            plt.colorbar(orientation='horizontal')
+            plt.show()
+            return
+        
+        # PLOT A GRID
+        # Using scipy.interpolate.griddata
+        # First get the axes
+        lon_grid, lat_grid = np.mgrid[(lon[0] + grid_size/2) : lon[1] : grid_size,
+                                      (lat[0] + grid_size/2) : lat[1] : grid_size]
+        
+        aod_grid_avg = griddata(zip(lons, lats), aod_diff, (lon_grid, lat_grid), method='linear')
+        
+#        # The AOD data will be put on a grid. Firstly get the latitudes and
+#        # longitudes of the grid points
+#        lat_grid = np.arange((lat[0] + grid_size/2), lat[1], grid_size)
+#        lon_grid = np.arange((lon[0] + grid_size/2), lon[1], grid_size)
+#        
+#        # Now put the lons and lats onto the nearest grid points
+#        lon_ints = np.rint((lons - lon[0]) / grid_size + 0.5)
+#        lons = lon[0] + (lon_ints - 0.5) * grid_size
+#        lat_ints = np.rint((lats - lat[0]) / grid_size + 0.5)
+#        lats = lat[0] + (lat_ints - 0.5) * grid_size
+#        
+#        aod_grid_avg = np.zeros((lat_grid.size, lon_grid.size))
+#        aod_grid_std = np.zeros((lat_grid.size, lon_grid.size))
+#        
+#        for i_lat, lat in enumerate(lat_grid):
+#            # For each longitude find the data points at that position
+#            # Then average the data for each grid point
+#            bool_mat = (lons == lon_grid[:, np.newaxis]) & (lats == np.array(lat))
+#            aod_diff_grid = aod_diff * bool_mat
+#            aod_diff_grid = np.where(aod_diff_grid!=0, aod_diff_grid, np.nan)
+#            
+#            # Suppress warnings from averaging over empty arrays
+#            with warnings.catch_warnings():
+#                warnings.simplefilter("ignore", category=RuntimeWarning)
+#                aod_grid_avg[i_lat] = np.nanmean(aod_diff_grid, axis=1)
+#                aod_grid_std[i_lat] = np.nanstd(aod_diff_grid, axis=1)
+                  
+        if plot_type == 'pcolormesh':
+            plt.pcolormesh(lon_grid, lat_grid.ravel(), aod_grid_avg, cmap=cmap)
         elif plot_type == 'contourf':
-            iplt.contourf(daily_average_cube, norm=colors.LogNorm(), cmap=cmap)
+            plt.contourf(lon_grid, lat_grid.ravel(), aod_grid_avg, cmap=cmap)
+        
     
     ax.coastlines()
     plt.colorbar(orientation='horizontal')

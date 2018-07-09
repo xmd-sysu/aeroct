@@ -35,11 +35,12 @@ def process_data(aod_array, date):
     condition = not_mask
     condition_d = not_mask & is_dust
     
-    condition_idx_dust = aod_array['ARSL_TYPE'][condition] == 1
-    idx_dust = np.indices([aod_array['ARSL_TYPE'][condition].size])[0, condition_idx_dust]
+    # Find the indices of the dust AODs within the total AOD array
+    condition_dust_idx = aod_array['ARSL_TYPE'][condition] == 1
+    dust_idx = np.indices([aod_array['ARSL_TYPE'][condition].size])[0, condition_dust_idx]
     
     aod = aod_array['AOD_NM550'][condition]                     # All AODs
-    aod_d = [aod_array['AOD_NM550'][condition_d], idx_dust]     # Only dust AODs
+    aod_d = [aod_array['AOD_NM550'][condition_d], dust_idx]     # Only dust AODs
     lat = aod_array['LTTD'][condition]
     lon = aod_array['LNGD'][condition]
     wl = 550    # wavelength [nm]

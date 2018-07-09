@@ -34,8 +34,8 @@ def datetime_list(initial_date, days):
 
 
 def date_range_download_and_match(data_set1, data_set2, dates, data_set3=None,
-                                  forecast_time=(None, None, None), match_time=30,
-                                  match_rad=25, save=True, dir_path=scratch_path+'data_frames/'):
+                                  forecast_time=(0, 0, 0), match_time=30, match_rad=25,
+                                  save=True, dir_path=scratch_path+'data_frames/'):
     '''
     Download data for data_set1 and data_set2 for the given dates. These are then
     collocated and the resulting MatchFrames for each date are returned in a list. By
@@ -57,9 +57,9 @@ def date_range_download_and_match(data_set1, data_set2, dates, data_set3=None,
     data_set3 : str, optional (Default: None)
         This is similar to data_set1/2 however if supplied then a three-way match-up is
         performed.
-    forecast_time : int tuple (Default: (0, 0))
-        The forecast lead time to use. If metum is chosen as the first or second data set
-        then the corresponding value in the tuple must be filled.
+    forecast_time : iterable of ints (Default: (0, 0))
+        The forecast lead time to use. If metum is chosen as a data set then the
+        corresponding value in the tuple must be filled.
     match_time : float, optional (Default: 30 (minutes))
         The time over which data will be matched and averaged in minutes.
     match_rad : int, optional (Default: 25 (km))
@@ -70,7 +70,9 @@ def date_range_download_and_match(data_set1, data_set2, dates, data_set3=None,
         The path to the directory where the files will be saved if save=True.
     '''
     
-    match_dfs = []
+    match_df12s = []
+    match_df13s = []
+    match_df23s = []
     
     for date in dates:
         date = date.strftime('%Y%m%d')
@@ -78,13 +80,27 @@ def date_range_download_and_match(data_set1, data_set2, dates, data_set3=None,
         df1 = aeroct.load(data_set1, date, forecast_time=forecast_time[0])
         df2 = aeroct.load(data_set2, date, forecast_time=forecast_time[1])
         
-        match_df = aeroct.collocate(df1, df2, match_time, match_rad)
-        match_dfs.append(match_df)
-        
+        match_df12 = aeroct.collocate(df1, df2, match_time, match_rad)
         if save == True:
-            match_df.dump(dir_path=dir_path)
+            match_df12.dump(dir_path=dir_path)
+        
+        if data_set3 == None:
+            match_df12s.append(match_df12)
+        else:
+            df3 = aeroct.load(data_set3, date, forecast_time=forecast_time[2])
+            match_df13 = aeroct.collocate(df1, df3, match_time, match_rad)
+            match_df23 = aeroct.collocate(df2, df3, match_time, match_rad)
+            match_df13s.append(match_df13)
+            match_df23s.append(match_df23)
+            
+            if save == True:
+                match_df13.dump(dir_path = dir_path)
+                match_df23.dump(dir_path = dir_path)
     
-    return match_dfs
+    if data_set3 == None:    
+        return match_df12s
+    else:
+        return [match_df12s, match_df13s, match_df23s]
 
 
 if __name__ == '__main__':

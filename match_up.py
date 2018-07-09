@@ -5,8 +5,6 @@ time and space.
 Created on Jun 27, 2018
 
 @author: savis
-
-TODO: Allow match-up with gridded data.
 '''
 from __future__ import division, print_function
 import warnings
