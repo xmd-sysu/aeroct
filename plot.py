@@ -8,6 +8,8 @@ import numpy as np
 from matplotlib import pyplot as plt, colors
 import cartopy.crs as ccrs
 from scipy.interpolate import griddata
+from scipy.interpolate.interpnd import _ndim_coords_from_arrays
+from scipy.spatial import cKDTree
 sys.path.append('/home/h01/savis/workspace/summer')
 import aeroct
 
@@ -45,7 +47,7 @@ def plot_anet_site(df, site=0):
     plt.show()
     
 
-def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='scatter', show=True, grid_size=2):
+def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh', show=True, grid_size=0.5):
     '''
     This can be used to plot the daily average of the AOD either at individual sites
     or on a grid.
@@ -57,8 +59,8 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='scatter', show=True, g
         A tuple of the longitude bounds of the plot in degrees.
     plot_type : str, optional (Default: 'scatter')
         The type of plot to produce. 'sites' for a plot of individual sites for AERONET
-        data, 'scatter' to plot a scatter grid of all AOD data, 'grid' for a meshgrid
-        plot, 'contourf' for a filled contour plot.
+        data, 'scatter' to plot a scatter grid of all AOD data, 'pcolormesh' or
+        'contourf' for griddded plots.
     show : bool, optional (Default: True)
         If True the figure is shown, otherwise it is returned 
     grid_size : float, optional (Default: 1)
@@ -70,7 +72,7 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='scatter', show=True, g
     plt.xlim(lon)
     plt.ylim(lat)
     
-    if type(df) == aeroct.DataFrame:
+    if df.__class__.__name__ == 'DataFrame':
         plt.title('Daily AOD for {} from {}'.format(df.date.date(), df.data_set))
         cmap='Greys'
         
@@ -111,51 +113,29 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='scatter', show=True, g
         # PLOT A GRID
         # Using scipy.interpolate.griddata
         # First get the axes
-        lon_grid, lat_grid = np.mgrid[(lon[0] + grid_size/2) : lon[1] : grid_size,
+        grid = np.mgrid[(lon[0] + grid_size/2) : lon[1] : grid_size,
                                       (lat[0] + grid_size/2) : lat[1] : grid_size]
         
-        loc = zip(df.longitudes, df.latitudes)
-        aod_grid_avg = griddata(loc, df.aod, (lon_grid, lat_grid), method='linear')
+        ll = zip(df.longitudes, df.latitudes)
+        aod_grid = griddata(ll, df.aod, tuple(grid), method='linear')
         
-#        # The AOD data will be put on a grid. Firstly get the latitudes and
-#        # longitudes of the grid points
-#        lat_grid = np.arange(lat[0],  lat[1], grid_size)
-#        lon_grid = np.arange(lon[0], lon[1], grid_size)
-#        lat_grid, lon_grid = np.meshgrid(lat_grid, lon_grid)
-#        
-#        # Bin the longitude and latitude
-#        lons = np.rint(df.longitudes / grid_size) * grid_size
-#        lats = np.rint(df.latitudes / grid_size) * grid_size
-#        
-#        # Find if each point of data lies within each grid point. This is stored in a
-#        # boolean array with indices: latitude, longitude, data frame index.            
-#        aod_grid_avg = np.zeros_like(lat_grid)
-#        aod_grid_std = np.zeros_like(lat_grid)
-#        for i_lat in np.arange(lon_grid[0].size):
-#            in_lon_mat = (lons == lon_grid[:, i_lat, np.newaxis])
-#            in_lat_ar = (lats == lat_grid[0, i_lat])                
-#            in_grid = in_lat_ar * in_lon_mat
-#            print(in_lat_ar)
-#            
-#            grid_data = df.data * in_grid
-#            grid_data = np.where(grid_data!=0, grid_data, np.nan)
-#            
-#            # Take the average and standard deviation for each grid point
-#            aod_grid_avg[:, i_lat] = np.nanmean(grid_data, axis=1)
-##             aod_grid_std[:, i_lat] = np.nanmean(grid_data**2, axis=1) \
-##                                     - aod_grid_avg[i_lat]**2
+        # Mask grid data where there are no nearby points. Firstly create kd-tree
+        THRESHOLD = 2 * grid_size   # Maximum distance to look for nearby points
+        tree = cKDTree(ll)
+        xi = _ndim_coords_from_arrays(tuple(grid))
+        dists, indices = tree.query(xi)
+        # Copy original result but mask missing values with NaNs
+        aod_grid[dists > THRESHOLD] = np.nan
         
-        if plot_type == 'grid':
-            plt.pcolormesh(lon_grid, lat_grid, aod_grid_avg, norm=colors.LogNorm(),
-                        cmap=cmap)
+        if plot_type == 'pcolormesh':
+            plt.pcolormesh(grid[0], grid[1], aod_grid, norm=colors.LogNorm(), cmap=cmap)
         elif plot_type == 'contourf':
-            plt.contourf(lon_grid, lat_grid, aod_grid_avg, norm=colors.LogNorm(),
-                        cmap=cmap)
+            plt.contourf(grid[0], grid[1], aod_grid, norm=colors.LogNorm(), cmap=cmap)
     
-    elif type(df) == aeroct.MatchFrame:
-        plt.title('Daily AOD difference between {1} & {2} for {0}'\
+    elif df.__class__.__name__ == 'MatchFrame':
+        plt.title('Daily AOD difference : {1} - {2} for {0}'\
                   .format(df.date.date(), df.data_sets[1], df.data_sets[0]))
-        cmap='PuOr'
+        cmap='RdBu'
         
         # Find the data within the given bounds
         in_bounds = (df.longitudes > lon[0]) & (df.longitudes < lon[1]) & \
@@ -183,42 +163,24 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='scatter', show=True, g
         # PLOT A GRID
         # Using scipy.interpolate.griddata
         # First get the axes
-        lon_grid, lat_grid = np.mgrid[(lon[0] + grid_size/2) : lon[1] : grid_size,
-                                      (lat[0] + grid_size/2) : lat[1] : grid_size]
+        grid = np.mgrid[(lon[0] + grid_size/2) : lon[1] : grid_size,
+                        (lat[0] + grid_size/2) : lat[1] : grid_size]
+        ll = zip(lons, lats)
         
-        aod_grid_avg = griddata(zip(lons, lats), aod_diff, (lon_grid, lat_grid), method='linear')
+        aod_grid = griddata(ll, aod_diff, tuple(grid), method='linear')
         
-#        # The AOD data will be put on a grid. Firstly get the latitudes and
-#        # longitudes of the grid points
-#        lat_grid = np.arange((lat[0] + grid_size/2), lat[1], grid_size)
-#        lon_grid = np.arange((lon[0] + grid_size/2), lon[1], grid_size)
-#        
-#        # Now put the lons and lats onto the nearest grid points
-#        lon_ints = np.rint((lons - lon[0]) / grid_size + 0.5)
-#        lons = lon[0] + (lon_ints - 0.5) * grid_size
-#        lat_ints = np.rint((lats - lat[0]) / grid_size + 0.5)
-#        lats = lat[0] + (lat_ints - 0.5) * grid_size
-#        
-#        aod_grid_avg = np.zeros((lat_grid.size, lon_grid.size))
-#        aod_grid_std = np.zeros((lat_grid.size, lon_grid.size))
-#        
-#        for i_lat, lat in enumerate(lat_grid):
-#            # For each longitude find the data points at that position
-#            # Then average the data for each grid point
-#            bool_mat = (lons == lon_grid[:, np.newaxis]) & (lats == np.array(lat))
-#            aod_diff_grid = aod_diff * bool_mat
-#            aod_diff_grid = np.where(aod_diff_grid!=0, aod_diff_grid, np.nan)
-#            
-#            # Suppress warnings from averaging over empty arrays
-#            with warnings.catch_warnings():
-#                warnings.simplefilter("ignore", category=RuntimeWarning)
-#                aod_grid_avg[i_lat] = np.nanmean(aod_diff_grid, axis=1)
-#                aod_grid_std[i_lat] = np.nanstd(aod_diff_grid, axis=1)
+        # Mask grid data where there are no nearby points. Firstly create kd-tree
+        THRESHOLD = 2 * grid_size   # Maximum distance to look for nearby points
+        tree = cKDTree(ll)
+        xi = _ndim_coords_from_arrays(tuple(grid))
+        dists, indices = tree.query(xi)
+        # Copy original result but mask missing values with NaNs
+        aod_grid[dists > THRESHOLD] = np.nan
                   
         if plot_type == 'pcolormesh':
-            plt.pcolormesh(lon_grid, lat_grid.ravel(), aod_grid_avg, cmap=cmap)
+            plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=cmap)
         elif plot_type == 'contourf':
-            plt.contourf(lon_grid, lat_grid.ravel(), aod_grid_avg, cmap=cmap)
+            plt.contourf(grid[0], grid[1], aod_grid, cmap=cmap)
         
     
     ax.coastlines()

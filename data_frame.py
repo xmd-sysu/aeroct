@@ -387,9 +387,10 @@ def load(data_set, date, forecast_time=0, src=None,
             print('Downloading AERONET data for ' + date +'.')
             aod_string = aeronet.download_data_day(date)
             if (dl_save == True) | (dl_save == 'f'):
-                os.system('mkdir {} 2> /dev/null'.format(dl_dir))
+                os.makedirs(dl_dir)
                 os.system('touch {}AERONET_{}'.format(dl_dir, date))
                 with open('{}AERONET_{}'.format(dl_dir, date), 'w') as w:
+                    print('Saving data to {}AERONET_{}.'.format(dl_dir, date))
                     pickle.dump(aod_string, w, -1)
         else:
             with open('{}AERONET_{}'.format(dl_dir, date), 'r') as r:
@@ -402,22 +403,29 @@ def load(data_set, date, forecast_time=0, src=None,
         return DataFrame(*parameters, data_set=data_set)
     
     elif data_set == 'modis':
-        dl_dir = dl_dir + 'MODIS/'
+        dl_dir_mod = dl_dir + 'MODIS/'
         
-        if (not os.path.exists('{}MODIS_{}'.format(dl_dir, date))) | (dl_save == 'f'):
-            print('Downloading MODIS data for ' + date +'.')
-            aod_array = modis.retrieve_data_day(date)
+        if (not os.path.exists('{}MODIS_{}'.format(dl_dir_mod, date))) | (dl_save == 'f'):
+            
+            if (src == None) | (src == 'MetDB'):
+                print('Extracting MODIS data from MetDB for {}.'.format(date))
+                aod_dict = modis.retrieve_data_day_metdb(date)
+            elif src == 'NASA':
+                print('Downloading MODIS data for {}.'.format(date))
+                aod_dict = modis.download_data_day(date, dl_dir=dl_dir+'MODIS_hdf/', keep_files=True)
+            
             if (dl_save == True) | (dl_save == 'f'):
-                os.system('mkdir {} 2> /dev/null'.format(dl_dir))
-                os.system("touch '{}MODIS_{}'".format(dl_dir, date))
-                with open('{}MODIS_{}'.format(dl_dir, date), 'w') as w:
-                    pickle.dump(aod_array, w, -1)
+                os.makedirs(dl_dir_mod)
+                os.system("touch '{}MODIS_{}'".format(dl_dir_mod, date))
+                with open('{}MODIS_{}'.format(dl_dir_mod, date), 'w') as w:
+                    print('Saving data to {}MODIS_{}.'.format(dl_dir_mod, date))
+                    pickle.dump(aod_dict, w, -1)
         else:
-            with open('{}MODIS_{}'.format(dl_dir, date), 'r') as r:
-                    aod_array = pickle.load(r)
+            with open('{}MODIS_{}'.format(dl_dir_mod, date), 'r') as r:
+                    aod_dict = pickle.load(r)
         
         print('Processing MODIS data...', end='')
-        parameters = modis.process_data(aod_array, date)
+        parameters = modis.process_data(aod_dict, date)
         print('Complete.')
         return DataFrame(*parameters, data_set=data_set)
     
