@@ -494,7 +494,7 @@ def collocate(df1, df2, match_time=30, match_rad=25):
     
     # Model-Model match-up
     elif (df1.cube != None) & (df2.cube != None):
-        pass
+        model_model_match(df1, df2)
 
 
 

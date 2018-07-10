@@ -43,10 +43,7 @@ def process_data(aod_array, date):
     aod_d = [aod_array['AOD_NM550'][condition_d], dust_idx]     # Only dust AODs
     lat = aod_array['LTTD'][condition]
     lon = aod_array['LNGD'][condition]
+    time = aod_array['TIME'][condition]                     # Hours since 00:00:00
     wl = 550    # wavelength [nm]
-    
-    # NOTE: WHAT HAPPENS AT THE BEGINNING OF MONTHS / BEGINNING OF YEARS
-    time = (aod_array['DAY'][condition] - date.day) * 24 + (aod_array['HOUR'][condition] - date.hour) + \
-           (aod_array['MINT'][condition] - date.minute) / 60   # Hours since 00:00:00
     
     return [aod, aod_d, lat, lon, time, date, wl]
