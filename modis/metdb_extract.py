@@ -44,7 +44,7 @@ def retrieve_data_range_metdb(start, stop):
     return aod_array
 
 
-def retrieve_data_day_metdb(date, minutes_err=30):
+def retrieve_data_day_metdb(date, minutes_err=0):
     '''
     Retrieve MODIS AOD data at 550nm from MetDB for a single day and some data from the
     day before and after. The output is a NumPy record array containing time (YEAR, MNTH,

@@ -94,7 +94,7 @@ def load_data_day(date, dl_dir, download=True, satellite='Both', keep_files=Fals
     files = glob.glob(dl_dir + '*' + date_yj + '.*.hdf')
     
     # Get the fields from the files and concatenate them in lists
-    lon, lat, time, arsl_type, aod, qf = [], [], [], [], [], []
+    lon, lat, time, arsl_type, aod = [], [], [], [], []
     fieldnames = ['Longitude', 'Latitude', 'Scan_Start_Time', 'Aerosol_Type_Land', 
                    'AOD_550_Dark_Target_Deep_Blue_Combined',
                    'AOD_550_Dark_Target_Deep_Blue_Combined_QA_Flag']
@@ -108,19 +108,19 @@ def load_data_day(date, dl_dir, download=True, satellite='Both', keep_files=Fals
         date_hours = (date_dt - datetime(1993,1,1)).days * 24
         time_hours = scaled['Scan_Start_Time'] / 3600 - date_hours
         
-        lon.extend(scaled['Longitude'])
-        lat.extend(scaled['Latitude'])
-        time.extend(time_hours)
-        arsl_type.extend(scaled['Aerosol_Type_Land'])
-        aod.extend(scaled['AOD_550_Dark_Target_Deep_Blue_Combined'])
-        qf.extend(scaled['AOD_550_Dark_Target_Deep_Blue_Combined_QA_Flag'])
+        # Include only the data with the highest quality flag
+        highest_qf = (scaled['AOD_550_Dark_Target_Deep_Blue_Combined_QA_Flag'] == 3)
+        lon.extend(scaled['Longitude'][highest_qf])
+        lat.extend(scaled['Latitude'][highest_qf])
+        time.extend(time_hours[highest_qf])
+        arsl_type.extend(scaled['Aerosol_Type_Land'][highest_qf])
+        aod.extend(scaled['AOD_550_Dark_Target_Deep_Blue_Combined'][highest_qf])
     
     fields_dict = {'LNGD' : np.array(lon).ravel(),
                    'LTTD' : np.array(lat).ravel(),
                    'TIME' : np.array(time).ravel(),
                    'ARSL_TYPE' : np.array(arsl_type).ravel(),
-                   'AOD_NM550' : np.array(aod).ravel(),
-                   'ARSL_RTVL_CNFC_FLAG' : np.array(qf).ravel()}
+                   'AOD_NM550' : np.array(aod).ravel()}
     
     # Remove files?
     if keep_files == False:

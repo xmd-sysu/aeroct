@@ -30,7 +30,7 @@ def process_data(aod_array, date):
     if type(date) is not datetime:
         date = datetime.strptime(date, '%Y%m%d')
     
-    not_mask = aod_array['AOD_NM550'] > 1e-5
+    not_mask = aod_array['AOD_NM550'] > -0.05
     is_dust = aod_array['ARSL_TYPE'] == 1
     condition = not_mask
     condition_d = not_mask & is_dust

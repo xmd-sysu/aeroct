@@ -20,6 +20,7 @@ import cartopy.crs as ccrs
 from scipy.interpolate import griddata
 from scipy.interpolate.interpnd import _ndim_coords_from_arrays
 from scipy.spatial import cKDTree
+import matplotlib
 sys.path.append('/home/h01/savis/workspace/summer')
 import aeroct
 
@@ -29,6 +30,23 @@ from matplotlib.cbook.deprecation import MatplotlibDeprecationWarning
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", category=MatplotlibDeprecationWarning)
     from iris import plot as iplt, analysis
+
+
+class MidpointNormalize(colors.Normalize):
+    """
+    Normalise the colorbar so that diverging bars work there way either side from a prescribed midpoint value)
+
+    e.g. im=ax1.imshow(array, norm=MidpointNormalize(midpoint=0.,vmin=-100, vmax=100))
+    """
+    def __init__(self, vmin=None, vmax=None, midpoint=0, clip=False):
+        self.midpoint = midpoint
+        colors.Normalize.__init__(self, vmin, vmax, clip)
+
+    def __call__(self, value, clip=None):
+        # I'm ignoring masked values and all kinds of edge cases to make a
+        # simple example...
+        x, y = [self.vmin, self.midpoint, self.vmax], [0, 0.5, 1]
+        return np.ma.masked_array(np.interp(value, x, y), np.isnan(value))
 
 
 def plot_anet_site(df, site=0):
@@ -83,8 +101,8 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_data=None, plot_type='pcolor
     plt.xlim(lon)
     plt.ylim(lat)
     
-    data_frame_cmap = 'Greys'
-    match_frame_cmap = 'RdBu'
+    data_frame_cmap = matplotlib.cm.Oranges
+    match_frame_cmap = matplotlib.cm.RdBu_r
     
     # USE IRIS PLOT IF THERE IS A CUBE IN THE DATA FRAME
     if df.cube != None:
@@ -101,7 +119,7 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_data=None, plot_type='pcolor
         day_avg_cube = df.cube.collapsed('time', analysis.MEAN)
         
         if plot_type == 'pcolormesh':
-            iplt.pcolormesh(day_avg_cube, cmap=cmap)
+            iplt.pcolormesh(day_avg_cube, cmap=cmap, norm=MidpointNormalize())
         if plot_type == 'contourf':
             iplt.contourf(day_avg_cube, cmap=cmap)
         
@@ -224,7 +242,7 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_data=None, plot_type='pcolor
         aod_grid[dists > THRESHOLD] = np.nan
                   
         if plot_type == 'pcolormesh':
-            plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=match_frame_cmap)
+            plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=match_frame_cmap, norm=MidpointNormalize())
         elif plot_type == 'contourf':
             plt.contourf(grid[0], grid[1], aod_grid, cmap=match_frame_cmap)
         

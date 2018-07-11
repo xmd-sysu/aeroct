@@ -500,12 +500,24 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         if (type(df1.aod_d) == type(None)) | (type(df2.aod_d) == type(None)):
             raise ValueError('Both data frames must have dust AOD data.')
         
+        # Get times shared between the two data frames
+        in_shared_times = np.array([time in df2.times for time in df1.times])
+        times = df1.times[in_shared_times]
+        print(times)
+        
+        aod = np.zeros((2, len(times)) + df1.aod_d[0].shape)
+        cube_data = np.zeros((len(times),) + df1.aod_d[0].shape)
+        for i_t, time in enumerate(times):
+            aod[0, i_t] = df1.aod_d[df1.times==time][0]
+            aod[1, i_t] = df2.aod_d[df2.times==time][0]
+            cube_data[i_t] = aod[1, i_t] - aod[0, i_t]
+            
         # Get data to put into MatchFrame
-        aod = np.array([df1.aod_d, df2.aod_d])
-        std = (None, None)          # No averaging
-        num = (None, None)          # is performed
+        std = np.zeros_like(aod)        # No averaging
+        num = np.ones_like(aod)         # is performed
         lon, lat, time = df1.longitudes, df1.latitudes, df1.times
-        df1.cube.data = df2.cube.data - df1.cube.data   # Cube with data of df2 - df1
+        cube = df1.cube.data[df1.times==time][0]
+        cube.data = cube_data   # Cube with data of df2 - df1
         
         return MatchFrame(aod, std, num, lon, lat, time, df1.date, None, None,
                           df1.wavelength, forecasts, data_sets, aod_type=1, cube=df1.cube)
