@@ -60,7 +60,7 @@ class DataFrame():
     
     @classmethod
     def from_cube(cls, cube, data_set):
-        aod_c = cube.data                       # Model data is only for dust
+        aod_d = cube.data                       # Model data is only for dust AOD
         lons = cube.coord('longitude').points
         lats = cube.coord('latitude').points
         times = cube.coord('time').points
@@ -69,7 +69,7 @@ class DataFrame():
         wl = cube.coord('wavelength').points[0]
         fc_time = cube.coord('forecast_time').points[0]
         
-        return cls(None, aod_c, lats, lons, times, date, wl, fc_time, data_set, cube)                
+        return cls(None, aod_d, lats, lons, times, date, wl, fc_time, data_set, cube)                
     
     
     def datetimes(self):
@@ -313,7 +313,7 @@ def load(data_set, date, forecast_time=0, src=None,
         aod_df = aeronet.parse_data(aod_string)
         print('Processing AERONET data...', end='')
         parameters = aeronet.process_data(aod_df, date)
-        print('Complete.')
+        print('Complete.\n')
         return DataFrame(*parameters, data_set=data_set)
     
     elif data_set == 'modis':
@@ -326,7 +326,7 @@ def load(data_set, date, forecast_time=0, src=None,
                 aod_dict = modis.retrieve_data_day_metdb(date)
             elif src == 'NASA':
                 print('Downloading MODIS data for {}.'.format(date))
-                aod_dict = modis.download_data_day(date, dl_dir=dl_dir+'MODIS_hdf/', keep_files=True)
+                aod_dict = modis.load_data_day(date, dl_dir=dl_dir+'MODIS_hdf/', keep_files=True)
             
             # Save data
             if (dl_save == True) | (dl_save == 'f'):
@@ -344,7 +344,7 @@ def load(data_set, date, forecast_time=0, src=None,
         
         print('Processing MODIS data...', end='')
         parameters = modis.process_data(aod_dict, date)
-        print('Complete.')
+        print('Complete.\n')
         return DataFrame(*parameters, data_set=data_set)
     
     elif data_set == 'metum':
@@ -355,11 +355,11 @@ def load(data_set, date, forecast_time=0, src=None,
             force = True
         
         metum.download_data_day(date, forecast_time, dl_dir, force)
-        print('Loading files.')
+        print('Loading Unified Model files.')
         aod_cube = metum.load_files(date, forecast_time, dl_dir)
         print('Processing Unified Model data...', end='')
         aod_cube = metum.process_data(aod_cube, date, forecast_time)
-        print('Complete.')
+        print('Complete.\n')
         return DataFrame.from_cube(aod_cube, data_set)
     
     else:

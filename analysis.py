@@ -1,4 +1,7 @@
 '''
+This module contains functions to obtain a list of MatchFrame objects given a list of
+dates. It also contains the functions to plot the data over time.
+
 Created on Jul 3, 2018
 
 @author: savis
@@ -33,7 +36,7 @@ def datetime_list(initial_date, days):
     return dt_list
 
 
-def date_range_download_and_match(data_set1, data_set2, dates, data_set3=None,
+def period_download_and_match(data_set1, data_set2, dates, data_set3=None,
                                   forecast_time=(0, 0, 0), match_time=30, match_rad=25,
                                   save=True, dir_path=scratch_path+'data_frames/'):
     '''
@@ -103,11 +106,47 @@ def date_range_download_and_match(data_set1, data_set2, dates, data_set3=None,
         return [match_df12s, match_df13s, match_df23s]
 
 
+def period_bias_plot(mf_list, show=True, **kw):
+    '''
+    Given a list containing MatchFrames the bias between the two sets of collocated AOD
+    values are calculated. The mean bias for each day is plotted with an error bar
+    containing the standard deviation of the bias.
+    
+    Parameters:
+    mf_list : iterable of MatchFrames
+        May be obtained using the period_download_and_match() function. The bias is
+        the second data set AOD subtract the first.
+    show : bool, optional (Default: True)
+        Choose whether to show the plot. If False the figure is returned by the function.
+    kwargs : optional
+        These kwargs are passed to matplotlib.pyplot.errorbar() to format the plot. If
+        none are supplied then the following are used:
+        fmt='r.', ecolor='gray', capsize=0.
+    '''
+    bias_arrays = np.array([mf.data_f[1] - mf.data_f[0] for mf in mf_list])
+    bias_mean = np.mean(bias_arrays, axis=1)
+    bias_std = np.std(bias_arrays, axis=1)
+    date_list = [mf.date for mf in mf_list]
+    
+    # Plot formatting
+    kw.setdefault('fmt', 'r.')
+    kw.setdefault('ecolor', 'gray')
+    kw.setdefault('capsize', 0)
+    
+    fig = plt.figure()
+    plt.errorbar(date_list, bias_mean, bias_std, **kw)
+    
+    if show == True:
+        plt.show()
+    else:
+        return fig
+
+
 if __name__ == '__main__':
     data_set1 = 'aeronet'
     data_set2 = 'modis'
     dates = datetime_list('20180620', np.arange(0, 15, 5))
-    match_dfs = date_range_download_and_match(data_set1, data_set2, dates)
+    match_dfs = period_download_and_match(data_set1, data_set2, dates)
     
     Rs = [match_dfs[i].R for i in range(len(match_dfs))]
     plt.plot(dates, Rs)

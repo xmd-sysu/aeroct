@@ -5,6 +5,8 @@ time and space.
 Created on Jun 27, 2018
 
 @author: savis
+
+TODO: Add regridding of one cube to the other in model-model match-up
 '''
 from __future__ import division, print_function
 import warnings
@@ -494,7 +496,19 @@ def collocate(df1, df2, match_time=30, match_rad=25):
     
     # Model-Model match-up
     elif (df1.cube != None) & (df2.cube != None):
-        model_model_match(df1, df2)
+        
+        if (type(df1.aod_d) == type(None)) | (type(df2.aod_d) == type(None)):
+            raise ValueError('Both data frames must have dust AOD data.')
+        
+        # Get data to put into MatchFrame
+        aod = np.array([df1.aod_d, df2.aod_d])
+        std = (None, None)          # No averaging
+        num = (None, None)          # is performed
+        lon, lat, time = df1.longitudes, df1.latitudes, df1.times
+        df1.cube.data = df2.cube.data - df1.cube.data   # Cube with data of df2 - df1
+        
+        return MatchFrame(aod, std, num, lon, lat, time, df1.date, None, None,
+                          df1.wavelength, forecasts, data_sets, aod_type=1, cube=df1.cube)
 
 
 

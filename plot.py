@@ -1,7 +1,17 @@
 '''
+This module contains the functions to plot single DataFrames or MatchFrames, ie. a single
+day.
+The AOD data throughout the day for a single AERONET site can be plotted with
+plot_anet_site().
+The daily average for the AOD / AOD difference for either a DataFrame or MatchFrame can
+be plotted on a map using plot_map().
+The AOD match-up for a MatchFrame may be plotted on a scatter plot with scatter_plot().
+
 Created on Jul 5, 2018
 
 @author: savis
+
+TODO: Move the MatchFrame scatter plot function to this module.
 '''
 import sys
 import numpy as np
@@ -23,7 +33,7 @@ with warnings.catch_warnings():
 
 def plot_anet_site(df, site=0):
     '''
-    Plot the daily data for a single AERONET site.
+    Plot the daily AOD data for a single AERONET site.
     
     Parameters:
     df : aeroct DataFrame
@@ -47,7 +57,8 @@ def plot_anet_site(df, site=0):
     plt.show()
     
 
-def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh', show=True, grid_size=0.5):
+def plot_map(df, lat=(-90,90), lon=(-180,180), plot_data=None, plot_type='pcolormesh',
+             show=True, grid_size=0.5):
     '''
     This can be used to plot the daily average of the AOD either at individual sites
     or on a grid.
@@ -72,9 +83,46 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh', show=True
     plt.xlim(lon)
     plt.ylim(lat)
     
+    data_frame_cmap = 'Greys'
+    match_frame_cmap = 'RdBu'
+    
+    # USE IRIS PLOT IF THERE IS A CUBE IN THE DATA FRAME
+    if df.cube != None:
+        
+        if df.__class__.__name__ == 'DataFrame':
+            cmap = data_frame_cmap
+            plt.title('Daily AOD for {} from {}'.format(df.date.date(), df.data_set))
+        elif df.__class__.__name__ == 'MatchFrame':
+            cmap = match_frame_cmap
+            plt.title('Daily AOD difference : {1} - {2} for {0}'\
+                  .format(df.date.date(), df.data_sets[1], df.data_sets[0]))
+        
+        print(df.cube)
+        day_avg_cube = df.cube.collapsed('time', analysis.MEAN)
+        
+        if plot_type == 'pcolormesh':
+            iplt.pcolormesh(day_avg_cube, cmap=cmap)
+        if plot_type == 'contourf':
+            iplt.contourf(day_avg_cube, cmap=cmap)
+        
+        ax.coastlines()
+        plt.colorbar(orientation='horizontal')
+        
+        if show == True:
+            plt.show()
+            return
+        else:
+            return fig
+    
     if df.__class__.__name__ == 'DataFrame':
         plt.title('Daily AOD for {} from {}'.format(df.date.date(), df.data_set))
-        cmap='Greys'
+        
+        if (plot_data == None) | (plot_data == 'aod'):
+            plot_data = df.aod
+        elif plot_data == 'aod_d':
+            plot_data = df.aod_d    # This will not work properly for MODIS data
+        elif plot_data == 'times':
+            plot_data = df.times
         
         # PLOT AOD AT AERONET SITES AS A SCATTER PLOT
         if df.data_set == 'aeronet':
@@ -83,11 +131,10 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh', show=True
             site_lats = df.latitudes[i_site]
             in_sites = site_lons[:, np.newaxis] == df.longitudes
             # Average the AOD at each site and take std
-            aod_site_avg = np.mean(df.data * in_sites, axis=1)
-            aod_site_std = np.mean(df.data**2 * in_sites, axis=1) - aod_site_avg**2
+            aod_site_avg = np.mean(plot_data * in_sites, axis=1)
+#             aod_site_std = np.mean(df.data**2 * in_sites, axis=1) - aod_site_avg**2
             
-            plt.scatter(site_lons, site_lats, c=aod_site_avg, norm=colors.LogNorm(),
-                        cmap=cmap, s=100)
+            plt.scatter(site_lons, site_lats, c=aod_site_avg, cmap=data_frame_cmap, s=100)
             ax.coastlines()
             plt.colorbar(orientation='horizontal')
             
@@ -99,7 +146,7 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh', show=True
         
         # PLOT THE AOD AT EVERY DATA POINT
         elif plot_type == 'scatter':
-            plt.scatter(df.longitudes, df.latitudes, c=df.data,
+            plt.scatter(df.longitudes, df.latitudes, c=df.aod,
                         marker='o', s=(72./fig.dpi)**2)
             ax.coastlines()
             plt.colorbar(orientation='horizontal')
@@ -110,32 +157,31 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh', show=True
             else:
                 return fig
         
-        # PLOT A GRID
+        # OTHERWISE PLOT A GRID
         # Using scipy.interpolate.griddata
         # First get the axes
         grid = np.mgrid[(lon[0] + grid_size/2) : lon[1] : grid_size,
                                       (lat[0] + grid_size/2) : lat[1] : grid_size]
         
         ll = zip(df.longitudes, df.latitudes)
-        aod_grid = griddata(ll, df.aod, tuple(grid), method='linear')
+        aod_grid = griddata(ll, plot_data, tuple(grid), method='linear')
         
         # Mask grid data where there are no nearby points. Firstly create kd-tree
         THRESHOLD = 2 * grid_size   # Maximum distance to look for nearby points
         tree = cKDTree(ll)
         xi = _ndim_coords_from_arrays(tuple(grid))
-        dists, indices = tree.query(xi)
+        dists = tree.query(xi)[0]
         # Copy original result but mask missing values with NaNs
         aod_grid[dists > THRESHOLD] = np.nan
         
         if plot_type == 'pcolormesh':
-            plt.pcolormesh(grid[0], grid[1], aod_grid, norm=colors.LogNorm(), cmap=cmap)
+            plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=data_frame_cmap)
         elif plot_type == 'contourf':
-            plt.contourf(grid[0], grid[1], aod_grid, norm=colors.LogNorm(), cmap=cmap)
+            plt.contourf(grid[0], grid[1], aod_grid, cmap=data_frame_cmap)
     
     elif df.__class__.__name__ == 'MatchFrame':
         plt.title('Daily AOD difference : {1} - {2} for {0}'\
                   .format(df.date.date(), df.data_sets[1], df.data_sets[0]))
-        cmap='RdBu'
         
         # Find the data within the given bounds
         in_bounds = (df.longitudes > lon[0]) & (df.longitudes < lon[1]) & \
@@ -152,9 +198,9 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh', show=True
             in_sites = site_lons[:, np.newaxis] == df.longitudes
             # Average the AOD at each site and take std
             aod_site_avg = np.mean(aod_diff * in_sites, axis=1)
-            aod_site_std = np.mean(aod_diff**2 * in_sites, axis=1) - aod_site_avg**2
+#             aod_site_std = np.mean(aod_diff**2 * in_sites, axis=1) - aod_site_avg**2
             
-            plt.scatter(site_lons, site_lats, c=aod_site_avg, cmap=cmap, s=100)
+            plt.scatter(site_lons, site_lats, c=aod_site_avg, cmap=match_frame_cmap, s=100)
             ax.coastlines()
             plt.colorbar(orientation='horizontal')
             plt.show()
@@ -173,14 +219,14 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh', show=True
         THRESHOLD = 2 * grid_size   # Maximum distance to look for nearby points
         tree = cKDTree(ll)
         xi = _ndim_coords_from_arrays(tuple(grid))
-        dists, indices = tree.query(xi)
+        dists = tree.query(xi)[0]
         # Copy original result but mask missing values with NaNs
         aod_grid[dists > THRESHOLD] = np.nan
                   
         if plot_type == 'pcolormesh':
-            plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=cmap)
+            plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=match_frame_cmap)
         elif plot_type == 'contourf':
-            plt.contourf(grid[0], grid[1], aod_grid, cmap=cmap)
+            plt.contourf(grid[0], grid[1], aod_grid, cmap=match_frame_cmap)
         
     
     ax.coastlines()

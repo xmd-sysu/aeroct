@@ -56,7 +56,7 @@ def download_hdf_day(date, dl_dir, satellite='Both'):
         for filename in filenames:
             if not os.path.exists(dl_dir + filename):
                 num_downloaded += 1
-                file_url = dir_url + filenames[0]
+                file_url = dir_url + filename
                 
                 try:
                     with closing(urlopen(file_url)) as file_r:
@@ -72,7 +72,7 @@ def download_hdf_day(date, dl_dir, satellite='Both'):
         print('Files already exist in {}'.format(dl_dir))
 
 
-def download_data_day(date, dl_dir, download=True, satellite='Both', keep_files=False):
+def load_data_day(date, dl_dir, download=True, satellite='Both', keep_files=False):
     '''
     This function can be used to download MODIS data for a day. A dictionary is returned
     containing 1D arrays with the following fields:
@@ -91,7 +91,7 @@ def download_data_day(date, dl_dir, download=True, satellite='Both', keep_files=
     date_dt = datetime.strptime(date, '%Y%m%d')
     date_yj = date_dt.strftime('%Y%j')
     
-    files = glob.glob(dl_dir + '*' + date_yj + '*.hdf')
+    files = glob.glob(dl_dir + '*' + date_yj + '.*.hdf')
     
     # Get the fields from the files and concatenate them in lists
     lon, lat, time, arsl_type, aod, qf = [], [], [], [], [], []
@@ -105,30 +105,29 @@ def download_data_day(date, dl_dir, download=True, satellite='Both', keep_files=
         
         # Convert 'Scan_Start_Time' (seconds since 1993-01-01)
         # to hours since 00:00:00 on date
-#         print(f)
         date_hours = (date_dt - datetime(1993,1,1)).days * 24
-        print(scaled['Scan_Start_Time'] / 3600 - date_hours)
-#         print(scaled['Longitude'])
+        time_hours = scaled['Scan_Start_Time'] / 3600 - date_hours
         
         lon.extend(scaled['Longitude'])
         lat.extend(scaled['Latitude'])
-        time.extend(scaled['Scan_Start_Time'])
+        time.extend(time_hours)
         arsl_type.extend(scaled['Aerosol_Type_Land'])
         aod.extend(scaled['AOD_550_Dark_Target_Deep_Blue_Combined'])
         qf.extend(scaled['AOD_550_Dark_Target_Deep_Blue_Combined_QA_Flag'])
     
-    fields_dict = {'LNGD' : lon,
-                   'LTTD' : lat,
-                   'TIME' : time,
-                   'ARSL_TYPE' : arsl_type,
-                   'AOD_NM550' : aod,
-                   'ARSL_RTVL_CNFC_FLAG' : qf}
+    fields_dict = {'LNGD' : np.array(lon).ravel(),
+                   'LTTD' : np.array(lat).ravel(),
+                   'TIME' : np.array(time).ravel(),
+                   'ARSL_TYPE' : np.array(arsl_type).ravel(),
+                   'AOD_NM550' : np.array(aod).ravel(),
+                   'ARSL_RTVL_CNFC_FLAG' : np.array(qf).ravel()}
     
     # Remove files?
     if keep_files == False:
         for f in files:
             os.remove(f)
-    os.rmdir(dl_dir)
+    if not os.listdir(dl_dir):
+        os.rmdir(dl_dir)
     
     return fields_dict
 
@@ -256,4 +255,5 @@ class h4Parse(object):
 
 
 if __name__ == '__main__':
-    download_data_day('20180112', '/scratch/savis/aeroct/downloads/MODIS_hdf/', download=False)
+#     download_data_day('20180112', '/scratch/savis/aeroct/downloads/MODIS_hdf/')
+    pass
