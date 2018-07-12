@@ -24,9 +24,6 @@ import metum
 
 scratch_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
-# How to output the names of the data sets
-name = {'aeronet': 'AERONET', 'modis': 'MODIS', 'metum': 'Unified Model'}
-
 div0 = lambda a, b: np.divide(a, b, out=np.zeros_like(a), where=b!=0)
 
 
@@ -40,27 +37,28 @@ class DataFrame():
     '''
 
     def __init__(self, aod, aod_d, latitudes, longitudes, times, date, wavelength=550,
-                 forecast_time=None, data_set=None, cube=None):
+                 data_set=None, **kw):
         # Ensure longitudes are in range [-180, 180]
         longitudes = longitudes.copy()
         longitudes[longitudes > 180] -= 360
         
-        self.aod = aod                      # Total AOD data
-        self.aod_d = aod_d                  # Dust component of AOD data
-        self.longitudes = longitudes        # [degrees]
-        self.latitudes = latitudes          # [degrees]
-        self.times = times                  # [hours since 00:00:00 on date]
+        self.aod        = aod                       # Total AOD data
+        self.aod_d      = aod_d                     # Dust component of AOD data
+        self.longitudes = longitudes                # [degrees]
+        self.latitudes  = latitudes                 # [degrees]
+        self.times      = times                     # [hours since 00:00:00 on date]
         
-        self.date = date                    # (datetime)
-        self.wavelength = wavelength        # [nm]
-        self.forecast_time = forecast_time  # [hours]
-        self.data_set = data_set            # The name of the data set
-        self.cube = cube                    # contains iris cube if the from cube class method has been used
+        self.date       = date                      # (datetime)
+        self.wavelength = wavelength                # [nm]
+        self.data_set   = data_set                  # The name of the data set
+        self.forecast_time = kw.setdefault('forecast_time', None)  # [hours]
+        self.cube = kw.setdefault('cube', None)    # contains iris cube if from_cube() used
     
     
     @classmethod
     def from_cube(cls, cube, data_set):
-        aod_d = cube.data                       # Model data is only for dust AOD
+        # Create a DataFrame using a cube containing model data (dust AOD only)
+        aod_d = cube.data
         lons = cube.coord('longitude').points
         lats = cube.coord('latitude').points
         times = cube.coord('time').points
@@ -69,7 +67,8 @@ class DataFrame():
         wl = cube.coord('wavelength').points[0]
         fc_time = cube.coord('forecast_time').points[0]
         
-        return cls(None, aod_d, lats, lons, times, date, wl, fc_time, data_set, cube)                
+        return cls(None, aod_d, lats, lons, times, date, wl, data_set,
+                   forecast_time=fc_time, cube=cube)
     
     
     def datetimes(self):
@@ -121,22 +120,22 @@ class MatchFrame():
 
     def __init__(self, data, data_std, data_num, longitudes, latitudes, times, date,
                  match_time, match_rad, wavelength=550, forecast_times=(None, None),
-                 data_sets=(None, None), aod_type=0, cube=None):
-        self.data = data                    # Averaged AOD data
-        self.data_std = data_std            # Averaged AOD data standard deviations
-        self.data_num = data_num            # Number of values that are averaged
+                 data_sets=(None, None), aod_type=0, **kw):
+        self.data       = data              # Averaged AOD data (Not flattend if cube != None)
+        self.data_std   = data_std          # Averaged AOD data standard deviations
+        self.data_num   = data_num          # Number of values that are averaged
         self.longitudes = longitudes        # [degrees]
-        self.latitudes = latitudes          # [degrees]
-        self.times = times                  # [hours since 00:00:00 on date]
+        self.latitudes  = latitudes         # [degrees]
+        self.times      = times             # [hours since 00:00:00 on date]
         
-        self.date = date                    # (datetime)
-        self.wavelength = wavelength        # [nm]
-        self.forecast_times = forecast_times# [hours] tuple
-        self.data_sets = data_sets          # A tuple of the names of the data sets
-        self.aod_type = aod_type            # Whether it is coarse mode AOD or total AOD
-        self.cube = cube                    # Has a grid in space and time? (forecast)
-        self.match_radius = match_rad       # Maximum spacial difference between collocated points
-        self.match_time = match_time        # Maximum time difference between collocated points
+        self.date           = date            # (datetime)
+        self.match_radius   = match_rad       # Maximum spacial difference between collocated points
+        self.match_time     = match_time      # Maximum time difference between collocated points
+        self.wavelength     = wavelength      # [nm]
+        self.forecast_times = forecast_times  # [hours] tuple
+        self.data_sets      = data_sets       # A tuple of the names of the data sets
+        self.aod_type       = aod_type        # Whether it is coarse mode AOD or total AOD
+        self.cube = kw.setdefault('cube', None)    # Contains AOD difference for a model-model match
         
         # Flattened
         self.data_f = np.array([self.data[0].ravel(), self.data[1].ravel()])
@@ -187,80 +186,7 @@ class MatchFrame():
         print('Data frame saved successfully to {}'.format(dir_path + filename + str(i).zfill(2)))
         
         return filename
-    
-    
-    def scatter_plot(self, stats=True, show=True, error=True):
-        '''
-        This is used to plot AOD data from two sources which have been matched-up on a
-        scatter plot. The output are the stats if stats=True and the figure also if
-        show=True.
-        
-        Parameters:
-        stats: bool, optional (Default: True)
-            Choose whether to show statistics on the plot.    
-        show: bool, optional (Default: True)
-            If True, the plot is shown otherwise the figure is passed as an output.    
-        error: bool, optional (Default: True)
-            If True, error bars for the standard deviations are included on the plot.
-        '''
-        if len(self.data_sets) != 2:
-            raise ValueError, 'The data frame must be matched-up data from two data sets'
-        
-        fig, ax = plt.subplots()
-        
-        if np.any([(self.data_sets[i] == 'metum') &
-                   (self.data_sets[1-i] == 'modis') for i in [0,1]]):
-            point_fmt = 'r.'
-        else:
-            point_fmt = 'ro'
-        
-        if error == True:
-            plt.errorbar(self.data_f[0], self.data_f[1], self.std_f[1], self.std_f[0],
-                         point_fmt, ecolor='gray')
-        else:
-            plt.plot(self.data_f[0], self.data_f[1], point_fmt)
-        
-        # Regression line
-        x = np.array([0, 10])
-        y = self.R_INTERCEPT + x * self.R_SLOPE
-        plt.plot(x, y, 'g:', lw=1, scalex=False, scaley=False)
-        
-        # y = x line
-        plt.plot([0, 10], [0, 10], 'k--', scalex=False, scaley=False)
-        
-        # Title and axes 
-        plt.title('Collocated AOD comparison on {0}'.format(self.date.date()))
-        if self.forecast_times[0] != None:
-            plt.xlabel('{} (forecast lead time: {} hours)'\
-                       .format(name[self.data_sets[0]], int(self.forecast_times[0])))
-        else:
-            plt.xlabel(name[self.data_sets[0]])
-        if self.forecast_times[1] != None:
-            plt.ylabel('{} (forecast lead time: {} hours)'\
-                       .format(name[self.data_sets[1]], int(self.forecast_times[1])))
-        else:
-            plt.ylabel(name[self.data_sets[1]])
-        
-        # Stats
-        if stats == True:
-            rms_str = 'RMS: {:.02f}'.format(self.RMS)
-            plt.text(0.03, 0.94, rms_str, fontsize=12, transform=ax.transAxes)
-            bias_mean_str = 'Bias mean: {:.02f}'.format(self.BIAS_MEAN)
-            plt.text(0.03, 0.88, bias_mean_str, fontsize=12, transform=ax.transAxes)
-            bias_std_str = 'Bias std: {:.02f}'.format(self.BIAS_STD)
-            plt.text(0.03, 0.82, bias_std_str, fontsize=12, transform=ax.transAxes)
-            r_str = 'Pearson R: {:.02f}'.format(self.R)
-            plt.text(0.35, 0.94, r_str, fontsize=12, transform=ax.transAxes)
-            slope_str = 'Slope: {:.02f}'.format(self.R_SLOPE)
-            plt.text(0.35, 0.88, slope_str, fontsize=12, transform=ax.transAxes)
-            intercept_str = 'Intercept: {:.02f}'.format(self.R_INTERCEPT)
-            plt.text(0.35, 0.82, intercept_str, fontsize=12, transform=ax.transAxes)
-        
-        if show == True:
-            plt.show()
-            return
-        else:
-            return fig
+
 
 
 def load(data_set, date, forecast_time=0, src=None,

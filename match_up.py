@@ -306,11 +306,11 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
     return [avg[:,r], std[:,r], num[:,r], lons[r], lats[r], times[r]]
 
 
-def model_sat_match(df_m, df_s, match_time, match_rad):
+def model_sat_match(df_m, df_s, match_time, match_dist):
     '''
     Return the AOD average, standard deviation, number of points, longitude, latitude
-    and time for each matched pair. There is a match if a model data point is within
-    match_time and match_rad of an AERONET data point.
+    and time for each matched pair. Each matched pair has model data within match_time
+    of the satellite data and the data is averaged on a grid with grid size match_rad.
     
     Parameters:
     df_m : AeroCT DataFrame
@@ -319,8 +319,8 @@ def model_sat_match(df_m, df_s, match_time, match_rad):
         The data-frame obtained with aeroct.load() containing coarse mode satellite data.
     match_time : float
         The time over which data will be matched and averaged in minutes.
-    match_rad : int
-        The radius for which data will be matched and averaged in degrees.
+    match_dist : int
+        The size of the grid cells for which data will be matched and averaged in degrees.
         (Only accurate for less than ~2.5)
     '''
     
@@ -333,21 +333,72 @@ def model_sat_match(df_m, df_s, match_time, match_rad):
     if df_s.data_set == 'modis':
         is_dust = df_s.aod_d[1]
         s_times = df_s.times[is_dust]
-        s_longitudes = df_s.longitudes[is_dust]
-        s_latitudes = df_s.latitudes[is_dust]
+        s_lons = df_s.longitudes[is_dust]
+        s_lats = df_s.latitudes[is_dust]
         s_aod_d = df_s.aod_d[0]
     
     # Bin the time
     t_mult = 60 / match_time
-    m_time = np.rint(df_m.times * t_mult) / t_mult
-    s_time = np.rint(s_times * t_mult) / t_mult
+    m_times = np.rint(df_m.times * t_mult) / t_mult
+    s_times = np.rint(s_times * t_mult) / t_mult
     
     # Get the list of times included in both sets of data
     times = []
-    for t in np.unique(m_time):
-        if np.any(s_time == t):
+    for t in np.unique(m_times):
+        if np.any(s_times == t):
             times.append(t)
     times = np.array(times)
+    
+    # Firstly bin the data into a grid of latitude and longitude
+    s_lons = np.rint(s_lons / match_dist) * match_dist
+    s_lats = np.rint(s_lats / match_dist) * match_dist
+    s_ll = np.array([s_lons, s_lats])
+    m_lons = np.rint(df_m.longitudes / match_dist) * match_dist
+    m_lats = np.rint(df_m.latitudes / match_dist) * match_dist
+    
+    lons, lats, times_arr = [], []
+    s_aod_avg, s_aod_std = [], []
+    
+    for i_t, time in enumerate(times):
+        s_ll_t = s_ll[:, s_times==time]
+        s_aod_t = s_aod_d[s_times==time]
+        
+        # FIND THE MEAN AND STANDARD DEVIATION OF THE SATELLITE DATA IN EACH GRID CELL
+        # Sort the latitudes and longitudes to bring duplicate locations together
+        sort_idx = np.lexsort(s_ll_t)
+        sorted_ll = s_ll_t[:, sort_idx]
+        sorted_aod = s_aod_t[sort_idx]
+        
+        # Obtain a mask to indicate where the new locations begin
+        uniq_mask = np.append(True, np.any(np.diff(sorted_ll, axis=1), axis=0))
+        
+        # Find an ID number to identify the location of each member of the sorted arrays
+        ID = np.cumsum(uniq_mask) - 1
+        
+        # Take the average and standard deviations for each location
+        s_aod_avg_t = np.bincount(ID, sorted_aod) / np.bincount(ID)
+        s_aod_std_t = np.bincount(ID, sorted_aod**2) / np.bincount(ID) - s_aod_avg_t**2
+        
+        lons_t = sorted_ll[0, uniq_mask]
+        lats_t = sorted_ll[1, uniq_mask]
+        
+        # NOW FIND THE MEAN AND STD OF THE UM DATA IN EACH GRID CELL
+        # Start by obtaining the location indices of the lats and lons
+        loc_idx_mat = np.indices(lons_t.shape).repeat(m_lons.size, axis=0)
+        m_lons_loc = loc_idx_mat[m_lons[:,np.newaxis] == lons_t]
+        m_lats_loc = loc_idx_mat[m_lats[:,np.newaxis] == lats_t]
+        
+        # get a list of the location indices and aod data for every matching lat & lon
+        m_
+        
+        
+        times_arr.extend(np.full_like(s_aod_avg_t, time))
+        s_aod_avg.extend(s_aod_avg_t)
+        s_aod_std.extend(s_aod_std_t)
+    
+    lons, lats, times_arr = np.array(lons), np.array(lats), np.array(times_arr)
+    s_aod_avg, s_aod_std = np.array(s_aod_avg), np.array(s_aod_std)
+    
     
     # NOW GET NEAREST NEIGBOURS TO EACH SATELLITE DATA POINT AT EACH TIME AND AVERAGE
     lons, lats, time_arr = [], [], []
@@ -503,7 +554,7 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         # Get times shared between the two data frames
         in_shared_times = np.array([time in df2.times for time in df1.times])
         times = df1.times[in_shared_times]
-        print(times)
+        times1_idx = np.arange(len(df1.times))[in_shared_times]
         
         aod = np.zeros((2, len(times)) + df1.aod_d[0].shape)
         cube_data = np.zeros((len(times),) + df1.aod_d[0].shape)
@@ -515,12 +566,14 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         # Get data to put into MatchFrame
         std = np.zeros_like(aod)        # No averaging
         num = np.ones_like(aod)         # is performed
-        lon, lat, time = df1.longitudes, df1.latitudes, df1.times
-        cube = df1.cube.data[df1.times==time][0]
+        lon, lat = np.meshgrid(df1.longitudes, df1.latitudes)
+        lon_f = np.tile(lon.ravel(), len(times))            # Same dimensions as
+        lat_f = np.tile(lat.ravel(), len(times))            # flattened data
+        cube = df1.cube[times1_idx]
         cube.data = cube_data   # Cube with data of df2 - df1
         
-        return MatchFrame(aod, std, num, lon, lat, time, df1.date, None, None,
-                          df1.wavelength, forecasts, data_sets, aod_type=1, cube=df1.cube)
+        return MatchFrame(aod, std, num, lon_f, lat_f, times, df1.date, None, None,
+                          df1.wavelength, forecasts, data_sets, aod_type=1, cube=cube)
 
 
 
