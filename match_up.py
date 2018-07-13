@@ -354,11 +354,11 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
     times = np.array(times)
     
     
-    # Firstly bin the data into a grid of latitude and longitude
-    s_lons = np.rint(s_lons / match_dist) * match_dist
+    # Firstly bin the data into a grid of latitude and longitude offset from the dateline
+    s_lons = np.rint((s_lons - match_dist/2) / match_dist) * match_dist + match_dist/2
     s_lats = np.rint(s_lats / match_dist) * match_dist
     s_ll = np.array([s_lons, s_lats])
-    m_lons = np.rint(df_m.longitudes / match_dist) * match_dist
+    m_lons = np.rint((df_m.longitudes - match_dist/2) / match_dist) * match_dist + match_dist/2
     m_lats = np.rint(df_m.latitudes / match_dist) * match_dist
      
     lons, lats, times_arr = [], [], []
@@ -412,17 +412,25 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
         m_lat_uniq = m_lats[lat_uniq_mask]
         m_grid_lon = m_lon_uniq[np.newaxis, :].repeat(m_lat_uniq.size, axis=0).ravel()
         m_grid_lat = m_lat_uniq[:, np.newaxis].repeat(m_lon_uniq.size, axis=1).ravel()
-         
+        
         # TAKE THE MODEL DATA FOR EVERY CELL FILLED WITH SATELLITE DATA
         # Find model locations in the satellite grid locations list
-        m_loc_comparator = m_grid_lon + m_grid_lat * 100000
-        s_loc_comparator = lons_t + lats_t * 100000
-        in_loc_t = np.isin(m_loc_comparator, s_loc_comparator)
+        m_loc_comparator = m_grid_lon + m_grid_lat * 10000
+        s_loc_comparator = lons_t + lats_t * 10000
+        in_loc_t = np.in1d(m_loc_comparator, s_loc_comparator)
          
         # Get model data in each satellite location
         m_aod_avg_t = m_aod_avg_t[in_loc_t]
         m_aod_std_t = m_aod_std_t[in_loc_t]
         m_aod_num_t = m_aod_num_t[in_loc_t]
+        
+#         # Troubleshooting
+#         if time == 12.0:
+#             a = np.array([m_grid_lon[in_loc_t], m_grid_lat[in_loc_t]])
+#             a = a[:,np.lexsort(a)]
+#             print(a[:,a[0]==0])
+#             print(a[:,np.append(False,np.all(np.diff(a, axis=1)==0, axis=0))])
+#             print(len(m_aod_avg_t))
          
         # APPEND THE DATA
         lons.extend(lons_t)
@@ -443,6 +451,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
     # Return only elements for which there is both model and satellite data
     r = (aod_num[0] > 0) & (aod_num[1] > 0)
     return [aod_avg[:,r], aod_std[:,r], aod_num[:,r], lons[r], lats[r], times_arr[r]]
+
 
 
 def collocate(df1, df2, match_time=30, match_rad=25):
@@ -560,7 +569,6 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         
         return MatchFrame(aod, std, num, lon_f, lat_f, times, df1.date, None, None,
                           df1.wavelength, forecasts, data_sets, aod_type=1, cube=cube)
-
 
 
 if __name__ == '__main__':

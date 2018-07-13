@@ -40,12 +40,13 @@ def process_data(aod_array, date, satellite='Both'):
     else:
         chosen_sat = True
     not_mask = aod_array['AOD_NM550'] > -0.05
+    print(set(aod_array['ARSL_TYPE']))
     is_dust = aod_array['ARSL_TYPE'] == 1
     condition = chosen_sat & not_mask
     condition_d = chosen_sat & not_mask & is_dust
     
     # Find the indices of the dust AODs within the total AOD array
-    condition_dust_idx = aod_array['ARSL_TYPE'][condition] == 1
+    condition_dust_idx = is_dust[condition]
     dust_idx = np.indices([aod_array['ARSL_TYPE'][condition].size])[0, condition_dust_idx]
     
     aod = aod_array['AOD_NM550'][condition]                     # All AODs

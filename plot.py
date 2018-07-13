@@ -39,7 +39,7 @@ name = {'aeronet': 'AERONET',
         'metum': 'Unified Model'}
 
 
-def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):
+def shiftedColorMap(cmap, data, vmin=None, vmax=None, midpoint=0, name='shiftedcmap'):
     '''
     Function to offset the "center" of a colormap. Useful for
     data with a negative min and positive max and you want the
@@ -67,14 +67,26 @@ def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):
         'blue': [],
         'alpha': []
     }
-      
+    
+    
+    data_min = np.min(data)
+    data_max = np.max(data)
+    if (vmin == None) & (vmin == None):
+        idx_mid = (midpoint - data_min) / (data_max - data_min)
+    elif vmin == None:
+        idx_mid = (midpoint - data_min) / (vmax - data_min)
+    elif vmax == None:
+        idx_mid = (midpoint - vmin) / (data_max - vmin)
+    else:
+        idx_mid = (midpoint - vmin) / (vmax - vmin)
+    
     # regular index to compute the colors
-    reg_index = np.linspace(start, stop, 257)
+    reg_index = np.linspace(0, 1, 257)
 
     # shifted index to match the data
     shift_index = np.hstack([
-        np.linspace(0.0, midpoint, 128, endpoint=False), 
-        np.linspace(midpoint, 1.0, 129, endpoint=True)
+        np.linspace(0.0, idx_mid, 128, endpoint=False), 
+        np.linspace(idx_mid, 1.0, 129, endpoint=True)
     ])
     
     for ri, si in zip(reg_index, shift_index):
@@ -118,7 +130,7 @@ def plot_anet_site(df, site=0):
     
 
 def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
-             show=True, grid_size=0.5):
+             show=True, grid_size=0.5, vmin=None, vmax=None):
     '''
     For DataFrames this function will plot the daily average of the AOD at individual
     sites for AERONET data, otherwise on a grid.
@@ -140,6 +152,10 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
         If True the figure is shown, otherwise it is returned 
     grid_size : float, optional (Default: 1)
         The size of the grid squares in degrees if not using indivdual sites
+    vmin, vmax : scalar, optional (Default: None)
+        vmin and vmax are used to set limits for the color map. If either is None, it is
+        autoscaled to the respective min or max of the plotted data.
+
     '''
     
     fig = plt.figure()
@@ -169,9 +185,9 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
             day_avg_cube = df.cube.collapsed('time', analysis.MEAN)
             
             if plot_type == 'pcolormesh':
-                iplt.pcolormesh(day_avg_cube, cmap=data_frame_cmap)
+                iplt.pcolormesh(day_avg_cube, cmap=data_frame_cmap, vmin=vmin, vmax=vmax)
             if plot_type == 'contourf':
-                iplt.contourf(day_avg_cube, cmap=data_frame_cmap)
+                iplt.contourf(day_avg_cube, cmap=data_frame_cmap, vmin=vmin, vmax=vmax)
         
         # PLOT AOD AT AERONET SITES AS A SCATTER PLOT
         elif df.data_set == 'aeronet':
@@ -183,12 +199,13 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
             aod_site_avg = np.mean(aod * in_sites, axis=1)
 #             aod_site_std = np.sqrt(np.mean(aod**2 * in_sites, axis=1) - aod_site_avg**2)
             
-            plt.scatter(site_lons, site_lats, c=aod_site_avg, cmap=data_frame_cmap, s=100)
+            plt.scatter(site_lons, site_lats, c=aod_site_avg, cmap=data_frame_cmap,
+                        s=100, vmin=vmin, vmax=vmax)
         
         # PLOT THE AOD AT EVERY DATA POINT
         elif plot_type == 'scatter':
-            plt.scatter(lons, lats, c=aod,
-                        marker='o', s=(72./fig.dpi)**2)
+            plt.scatter(lons, lats, c=aod, marker='o', s=(72./fig.dpi)**2,
+                        vmin=vmin, vmax=vmax)
         
         # OTHERWISE PLOT A GRID
         else:
@@ -198,6 +215,9 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
                                           (lat[0] + grid_size/2) : lat[1] : grid_size]
             
             ll = zip(lons, lats)
+#             # Bin the time
+#             t_mult = 60 / 90.
+#             s_times = np.rint(df.times[in_bounds] * t_mult) / t_mult
             aod_grid = griddata(ll, aod, tuple(grid), method='linear')
             
             # Mask grid data where there are no nearby points. Firstly create kd-tree
@@ -209,9 +229,11 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
             aod_grid[dists > THRESHOLD] = np.nan
             
             if plot_type == 'pcolormesh':
-                plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=data_frame_cmap)
+                plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=data_frame_cmap,
+                               vmin=vmin, vmax=vmax)
             elif plot_type == 'contourf':
-                plt.contourf(grid[0], grid[1], aod_grid, cmap=data_frame_cmap)
+                plt.contourf(grid[0], grid[1], aod_grid, cmap=data_frame_cmap,
+                             vmin=vmin, vmax=vmax)
     
     elif df.__class__.__name__ == 'MatchFrame':
         plt.title('Daily AOD difference : {1} - {2} for {0}'\
@@ -224,14 +246,12 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
         if type(df.cube) != type(None):
             
             day_avg_cube = df.cube.collapsed('time', analysis.MEAN)
-            data_min = np.min(day_avg_cube.data)
-            data_max = np.max(day_avg_cube.data)
-            cmap = shiftedColorMap(match_frame_cmap, midpoint=data_min/(data_min-data_max))
+            cmap = shiftedColorMap(match_frame_cmap, day_avg_cube.data, vmin, vmax)
             
             if plot_type == 'pcolormesh':
-                iplt.pcolormesh(day_avg_cube, cmap=cmap)
+                iplt.pcolormesh(day_avg_cube, cmap=cmap, vmin=vmin, vmax=vmax)
             if plot_type == 'contourf':
-                iplt.contourf(day_avg_cube, cmap=cmap)
+                iplt.contourf(day_avg_cube, cmap=cmap, vmin=vmin, vmax=vmax)
         
         # If AERONET is included plot the sites on a map
         elif np.any([df.data_sets[i] == 'aeronet' for i in [0,1]]):
@@ -244,13 +264,10 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
 #             aod_site_std = np.sqrt(np.mean(aod_diff**2 * in_sites, axis=1) - aod_site_avg**2)
             
             # Shift colour map to have a midpoint of zero
-            data_min = np.min(aod_site_avg)
-            data_max = np.max(aod_site_avg)
-            cmap = shiftedColorMap(match_frame_cmap,
-                                   midpoint=data_min/(data_min-data_max))
+            cmap = shiftedColorMap(match_frame_cmap, aod_site_avg, vmin, vmax)
             
-            plt.scatter(site_lons, site_lats, c=aod_site_avg, s=100,
-                        cmap=cmap)
+            plt.scatter(site_lons, site_lats, c=aod_site_avg, s=100, cmap=cmap,
+                        vmin=vmin, vmax=vmax)
         
         # OTHERWISE PLOT A GRID
         else:
@@ -263,7 +280,7 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
             aod_grid = griddata(ll, aod_diff, tuple(grid), method='linear')
             
             # Mask grid data where there are no nearby points. Firstly create kd-tree
-            THRESHOLD = 2 * grid_size   # Maximum distance to look for nearby points
+            THRESHOLD = grid_size   # Maximum distance to look for nearby points
             tree = cKDTree(ll)
             xi = _ndim_coords_from_arrays(tuple(grid))
             dists = tree.query(xi)[0]
@@ -271,15 +288,13 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
             aod_grid[dists > THRESHOLD] = np.nan
             
             # Shift colour map to have a midpoint of zero
-            data_min = np.nanmin(aod_grid)
-            data_max = np.nanmax(aod_grid)
-            cmap = shiftedColorMap(match_frame_cmap,
-                                   midpoint=data_min/(data_min-data_max))
+            cmap = shiftedColorMap(match_frame_cmap, aod_grid, vmin, vmax)
             
             if plot_type == 'pcolormesh':
-                plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=cmap)
+                plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=cmap,
+                               vmin=vmin, vmax=vmax)
             elif plot_type == 'contourf':
-                plt.contourf(grid[0], grid[1], aod_grid, cmap=cmap)
+                plt.contourf(grid[0], grid[1], aod_grid, cmap=cmap, vmin=vmin, vmax=vmax)
         
     
     ax.coastlines()
