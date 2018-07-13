@@ -173,7 +173,7 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
             in_sites = site_lons[:, np.newaxis] == lons
             # Average the AOD at each site and take std
             aod_site_avg = np.mean(aod * in_sites, axis=1)
-#             aod_site_std = np.mean(aod**2 * in_sites, axis=1) - aod_site_avg**2
+#             aod_site_std = np.sqrt(np.mean(aod**2 * in_sites, axis=1) - aod_site_avg**2)
             
             plt.scatter(site_lons, site_lats, c=aod_site_avg, cmap=data_frame_cmap, s=100)
         
@@ -237,7 +237,7 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
             in_sites = site_lons[:, np.newaxis] == lons
             # Average the AOD at each site and take std
             aod_site_avg = np.mean(aod_diff * in_sites, axis=1)
-#             aod_site_std = np.mean(aod_diff**2 * in_sites, axis=1) - aod_site_avg**2
+#             aod_site_std = np.sqrt(np.mean(aod_diff**2 * in_sites, axis=1) - aod_site_avg**2)
             
             # Shift colourmap to only include average site data
             data_min = np.min(aod_site_avg)
@@ -324,8 +324,8 @@ def scatter_plot(df, stats=True, show=True, error=True, hm_threshold=500, **kwar
     else:
         x_min, x_max = np.min(df.data_f[0]), np.max(df.data_f[0])
         y_min, y_max = np.min(df.data_f[1]), np.max(df.data_f[1])
-        x_grid = np.linspace(x_min, x_max, 51)
-        y_grid = np.linspace(y_min, y_max, 51)
+        x_grid = np.linspace(x_min, x_max, 101)
+        y_grid = np.linspace(y_min, y_max, 101)
         
         # Find the number of points in each grid cell and mask those with none
         heatmap_grid = np.histogram2d(df.data_f[0], df.data_f[1], [x_grid, y_grid])[0]

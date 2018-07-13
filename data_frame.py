@@ -24,8 +24,6 @@ import metum
 
 scratch_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
-div0 = lambda a, b: np.divide(a, b, out=np.zeros_like(a), where=b!=0)
-
 
 class DataFrame():
     '''

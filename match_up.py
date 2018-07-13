@@ -15,6 +15,8 @@ from scipy.spatial import cKDTree
 from data_frame import MatchFrame
 import time
 
+div0 = lambda a, b: np.divide(a, b, out=np.zeros_like(a), where=b!=0)
+
 
 def getnn(d1, d2, r, k=5):
     """
@@ -321,13 +323,10 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
         The time over which data will be matched and averaged in minutes.
     match_dist : int
         The size of the grid cells for which data will be matched and averaged in degrees.
-        (Only accurate for less than ~2.5)
     '''
     
     if (type(df_m.aod_d) == type(None)) | (type(df_s.aod_d) == type(None)):
         raise ValueError('Both data frames must have dust AOD data.')
-    
-    K = 10  # Number of nearest neighbours to find for each location
     
     # Include only dust AOD data for MODIS
     if df_s.data_set == 'modis':
@@ -349,114 +348,96 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
             times.append(t)
     times = np.array(times)
     
+    
     # Firstly bin the data into a grid of latitude and longitude
     s_lons = np.rint(s_lons / match_dist) * match_dist
     s_lats = np.rint(s_lats / match_dist) * match_dist
     s_ll = np.array([s_lons, s_lats])
     m_lons = np.rint(df_m.longitudes / match_dist) * match_dist
     m_lats = np.rint(df_m.latitudes / match_dist) * match_dist
-    
-    lons, lats, times_arr = [], []
-    s_aod_avg, s_aod_std = [], []
-    
-    for i_t, time in enumerate(times):
+     
+    lons, lats, times_arr = [], [], []
+    m_aod_avg, m_aod_std, m_aod_num = [], [], []
+    s_aod_avg, s_aod_std, s_aod_num = [], [], []
+     
+    for time in times:
         s_ll_t = s_ll[:, s_times==time]
         s_aod_t = s_aod_d[s_times==time]
-        
+        m_aod_t = df_m.aod_d[m_times==time].ravel()
+         
         # FIND THE MEAN AND STANDARD DEVIATION OF THE SATELLITE DATA IN EACH GRID CELL
         # Sort the latitudes and longitudes to bring duplicate locations together
         sort_idx = np.lexsort(s_ll_t)
         sorted_ll = s_ll_t[:, sort_idx]
         sorted_aod = s_aod_t[sort_idx]
-        
+         
         # Obtain a mask to indicate where the new locations begin
         uniq_mask = np.append(True, np.any(np.diff(sorted_ll, axis=1), axis=0))
-        
+         
         # Find an ID number to identify the location of each member of the sorted arrays
         ID = np.cumsum(uniq_mask) - 1
-        
+         
         # Take the average and standard deviations for each location
-        s_aod_avg_t = np.bincount(ID, sorted_aod) / np.bincount(ID)
-        s_aod_std_t = np.bincount(ID, sorted_aod**2) / np.bincount(ID) - s_aod_avg_t**2
-        
+        s_aod_avg_t = div0(np.bincount(ID, sorted_aod), np.bincount(ID))
+        s_aod_std_t = np.sqrt(np.abs(div0(np.bincount(ID, sorted_aod**2),
+                                          np.bincount(ID)) - s_aod_avg_t**2))
+        s_aod_num_t = np.bincount(ID)
+         
         lons_t = sorted_ll[0, uniq_mask]
         lats_t = sorted_ll[1, uniq_mask]
-        
-        # NOW FIND THE MEAN AND STD OF THE UM DATA IN EACH GRID CELL
-        # Start by obtaining the location indices of the lats and lons
-        loc_idx_mat = np.indices(lons_t.shape).repeat(m_lons.size, axis=0)
-        m_lons_loc = loc_idx_mat[m_lons[:,np.newaxis] == lons_t]
-        m_lats_loc = loc_idx_mat[m_lats[:,np.newaxis] == lats_t]
-        
-        # get a list of the location indices and aod data for every matching lat & lon
-        m_
-        
-        
+         
+        # NOW FIND THE MEAN AND STD OF THE MODEL DATA IN EACH GRID CELL
+        lon_uniq_mask = np.append(True, np.diff(m_lons) > 0)
+        lat_uniq_mask = np.append(True, np.diff(m_lats) > 0)
+         
+        # ID of each lon, lat, and lon-lat pair
+        lon_ID = np.cumsum(lon_uniq_mask) - 1
+        lat_ID = np.cumsum(lat_uniq_mask) - 1
+        ll_ID = (lon_ID + lat_ID[:, np.newaxis] * (np.max(lon_ID) + 1)).ravel()
+         
+        # Average and std of each grid cell
+        m_aod_avg_t = div0(np.bincount(ll_ID, m_aod_t), np.bincount(ll_ID))
+        m_aod_std_t = np.sqrt(np.abs(div0(np.bincount(ll_ID, m_aod_t**2),
+                                          np.bincount(ll_ID)) - m_aod_avg_t**2))
+             
+        m_aod_num_t = np.bincount(ll_ID)
+         
+        # Longitudes and latitudes of each grid cell
+        m_lon_uniq = m_lons[lon_uniq_mask]
+        m_lat_uniq = m_lats[lat_uniq_mask]
+        m_grid_lon = m_lon_uniq[np.newaxis, :].repeat(m_lat_uniq.size, axis=0).ravel()
+        m_grid_lat = m_lat_uniq[:, np.newaxis].repeat(m_lon_uniq.size, axis=1).ravel()
+         
+        # TAKE THE MODEL DATA FOR EVERY CELL FILLED WITH SATELLITE DATA
+        # Find model locations in the satellite grid locations list
+        m_loc_comparator = m_grid_lon + m_grid_lat * 100000
+        s_loc_comparator = lons_t + lats_t * 100000
+        in_loc_t = np.isin(m_loc_comparator, s_loc_comparator)
+         
+        # Get model data in each satellite location
+        m_aod_avg_t = m_aod_avg_t[in_loc_t]
+        m_aod_std_t = m_aod_std_t[in_loc_t]
+        m_aod_num_t = m_aod_num_t[in_loc_t]
+         
+        # APPEND THE DATA
+        lons.extend(lons_t)
+        lats.extend(lats_t)
         times_arr.extend(np.full_like(s_aod_avg_t, time))
         s_aod_avg.extend(s_aod_avg_t)
         s_aod_std.extend(s_aod_std_t)
-    
+        s_aod_num.extend(s_aod_num_t)
+        m_aod_avg.extend(m_aod_avg_t)
+        m_aod_std.extend(m_aod_std_t)
+        m_aod_num.extend(m_aod_num_t)
+     
     lons, lats, times_arr = np.array(lons), np.array(lats), np.array(times_arr)
-    s_aod_avg, s_aod_std = np.array(s_aod_avg), np.array(s_aod_std)
-    
-    
-    # NOW GET NEAREST NEIGBOURS TO EACH SATELLITE DATA POINT AT EACH TIME AND AVERAGE
-    lons, lats, time_arr = [], [], []
-    s_avg, s_std, s_num = [], [], []
-    m_avg, m_std, m_num = [], [], []
-    
-    for i_t, t in enumerate(times):
-        at_t = (s_time == t)
-        s_lons, s_lats = s_longitudes[at_t], s_latitudes[at_t]
-        s_ll = zip(s_lons, s_lats)
-        
-        lons.extend(s_lons)
-        lats.extend(s_lats)
-        time_arr.extend(np.full_like(s_lons, t))
-        s_avg.extend(s_aod_d[at_t])
-        s_std.extend(np.zeros_like(s_lons))
-        s_num.extend(np.ones_like(s_lons))
-        
-        # Select only model data with the same latitude and longitude bounds as sat data
-        # and get a 1Dx2 list of longitudes and latitudes to pass to getnn()
-        lon_bounds = [np.min(s_lons), np.max(s_lons)]
-        lat_bounds = [np.min(s_lats), np.max(s_lats)]
-        
-        m_lons, m_lats = df_m.longitudes, df_m.latitudes
-        m_lons_idx = np.nonzero((m_lons >= lon_bounds[0]) & (m_lons <= lon_bounds[1]))[0]
-        m_lats_idx = np.nonzero((m_lats >= lat_bounds[0]) & (m_lats <= lat_bounds[1]))[0]
-        m_lons = m_lons[m_lons_idx]
-        m_lats = m_lats[m_lats_idx]
-        
-        m_aod_t = df_m.aod_d[i_t, m_lats_idx[:, np.newaxis], m_lons_idx].ravel()
-        m_lons = np.repeat(m_lons[np.newaxis, :], len(m_lats_idx), axis=0).ravel()
-        m_lats = np.repeat(m_lats[:, np.newaxis], len(m_lons_idx), axis=1).ravel()
-        m_ll = zip(m_lons, m_lats)
-        
-        # Add nan to prevent out of array references from getnn()
-        m_aod_t = np.append(m_aod_t, np.nan)
-        
-        # For each site find the indices of the nearest 10 satellite points within
-        # match_rad using cKDTree.
-        m_nn_idx, dist = getnn(m_ll, s_ll, match_rad, k=K)
-        
-        # Suppress warnings from averaging over empty arrays
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            
-            # Average satellite data
-            m_avg.extend(np.nanmean(m_aod_t[m_nn_idx], axis=1))
-            m_std.extend(np.nanstd(m_aod_t[m_nn_idx], axis=1))
-            m_num.extend(np.sum(np.isfinite(dist), axis=1))
-    
-    aod = np.array([m_avg, s_avg])
-    std = np.array([m_std, s_std])
-    num = np.array([m_num, s_num])
-    lons, lats, times = np.array(lons), np.array(lats), np.array(time_arr)
-    
+    aod_avg = np.array([m_aod_avg, s_aod_avg])
+    aod_std = np.array([m_aod_std, s_aod_std])
+    aod_num = np.array([m_aod_num, s_aod_std])
+     
     # Return only elements for which there is both model and satellite data
-    r = (num[0] > 0) & (num[1] > 0)
-    return [aod[:,r], std[:,r], num[:,r], lons[r], lats[r], times[r]]
+    r = (aod_num[0] > 0) & (aod_num[1] > 0)
+    return [aod_avg[:,r], aod_std[:,r], aod_num[:,r], lons[r], lats[r], times_arr[r]]
 
 
 def collocate(df1, df2, match_time=30, match_rad=25):
@@ -531,8 +512,8 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         
         [aod, std, num, lon, lat, time] = params
         
-        return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time, match_rad,
-                          df1.wavelength, forecasts, data_sets, aod_type=1)
+        return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time,
+                          2 * match_rad, df1.wavelength, forecasts, data_sets, aod_type=1)
     
     # Same as above but the other way around
     elif (df1.cube == None) & (df2.cube != None):
@@ -542,8 +523,8 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         
         [aod, std, num, lon, lat, time] = params
         
-        return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time, match_rad,
-                          df1.wavelength, forecasts, data_sets, aod_type=1)
+        return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time,
+                          2 * match_rad, df1.wavelength, forecasts, data_sets, aod_type=1)
     
     # Model-Model match-up
     elif (df1.cube != None) & (df2.cube != None):
