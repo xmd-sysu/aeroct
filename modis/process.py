@@ -12,7 +12,7 @@ from __future__ import division
 from datetime import datetime
 import numpy as np
 
-def process_data(aod_array, date):
+def process_data(aod_array, date, satellite='Both'):
     '''
     Process the AOD data from a numpy record array into a list that may be passed into a
     data frame so that it may be compared with other data sources.
@@ -25,15 +25,24 @@ def process_data(aod_array, date):
     date : str or datetime
         The date for which to retrieve records. Format: YYYYMMDD for strings. Do not
         include a time if a datetime is used.
+    satellite : {'Both', 'Terra, 'Aqua'}, optional (Default: 'Both')
+        Which satellite's data to load.
     '''
     
     if type(date) is not datetime:
         date = datetime.strptime(date, '%Y%m%d')
     
+    # Restrict the rows of the array that are used
+    if satellite == 'Terra':
+        chosen_sat = aod_array['STLT_IDNY'] == 783
+    elif satellite == 'Aqua':
+        chosen_sat = aod_array['STLT_IDNY'] == 784
+    else:
+        chosen_sat = True
     not_mask = aod_array['AOD_NM550'] > -0.05
     is_dust = aod_array['ARSL_TYPE'] == 1
-    condition = not_mask
-    condition_d = not_mask & is_dust
+    condition = chosen_sat & not_mask
+    condition_d = chosen_sat & not_mask & is_dust
     
     # Find the indices of the dust AODs within the total AOD array
     condition_dust_idx = aod_array['ARSL_TYPE'][condition] == 1

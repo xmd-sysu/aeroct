@@ -329,12 +329,17 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
         raise ValueError('Both data frames must have dust AOD data.')
     
     # Include only dust AOD data for MODIS
-    if df_s.data_set == 'modis':
+    if df_s.data_set[:5] == 'modis':
         is_dust = df_s.aod_d[1]
         s_times = df_s.times[is_dust]
         s_lons = df_s.longitudes[is_dust]
         s_lats = df_s.latitudes[is_dust]
         s_aod_d = df_s.aod_d[0]
+    else:
+        s_times = df_s.times
+        s_lons = df_s.longitudes
+        s_lats = df_s.latitudes
+        s_aod_d = df_s.aod_d
     
     # Bin the time
     t_mult = 60 / match_time

@@ -72,13 +72,28 @@ def download_hdf_day(date, dl_dir, satellite='Both'):
         print('Files already exist in {}'.format(dl_dir))
 
 
-def load_data_day(date, dl_dir, download=True, satellite='Both', keep_files=False):
+def load_data_day(date, dl_dir, satellite='Both', download=True, keep_files=False):
     '''
     This function can be used to download MODIS data for a day. A dictionary is returned
     containing 1D arrays with the following fields:
     'LNGT': longitudes, 'LTTD': latitudes, 'AOD_NM550' : AOD,
     'ARSL_TYPE': aerosol type (dust=1), 'ARSL_RTVL_CNFC_FLAG': quality flag (0
     'YEAR', 'MNTH', 'DAY', 'HOUR', 'MINT': times
+    
+    Parameters:
+    date : str 
+        The date for which to retrieve records. Format: YYYYMMDD.
+    dl_dir : str
+        The directory in which the HDF files will be saved when downloaded.
+    satellite : {'Both', 'Terra, 'Aqua'}, optional (Default: 'Both')
+        Which satellite's data to load.
+    download : bool, optional (Default: True)
+        Choose whether to download the files. If False is chosen and they have not
+        already been downloaded then no data will be loaded.
+    keep_files : bool, optional (Default: False)
+        If False then the HDF files will be deleted once they have been passed into
+        Python. If there are no more files in dl_dir once the files have been removed
+        then the directory will also be removed.
     '''
     
     # Download?
@@ -91,10 +106,18 @@ def load_data_day(date, dl_dir, download=True, satellite='Both', keep_files=Fals
     date_dt = datetime.strptime(date, '%Y%m%d')
     date_yj = date_dt.strftime('%Y%j')
     
-    files = glob.glob(dl_dir + '*' + date_yj + '.*.hdf')
+    # Get the satellite code for the desired satellite data
+    if satellite == 'Both':
+        sat_code = ''
+    elif satellite == 'Terra':
+        sat_code = 'MOD04_L2'
+    elif satellite == 'Aqua':
+        sat_code = 'MYD04_L2'
+    
+    files = glob.glob('{0}*{1}*{2}.*.hdf'.format(dl_dir, sat_code, date_yj))
     
     # Get the fields from the files and concatenate them in lists
-    lon, lat, time, arsl_type, aod = [], [], [], [], []
+    lon, lat, time, arsl_type, aod, stlt_idny = [], [], [], [], [], []
     fieldnames = ['Longitude', 'Latitude', 'Scan_Start_Time', 'Aerosol_Type_Land', 
                    'AOD_550_Dark_Target_Deep_Blue_Combined',
                    'AOD_550_Dark_Target_Deep_Blue_Combined_QA_Flag']
@@ -108,6 +131,12 @@ def load_data_day(date, dl_dir, download=True, satellite='Both', keep_files=Fals
         date_hours = (date_dt - datetime(1993,1,1)).days * 24
         time_hours = scaled['Scan_Start_Time'] / 3600 - date_hours
         
+        # Get the satellite ID number
+        if 'MOD04_L2' in f:
+            sat_id = 783
+        elif 'MYD04_L2' in f:
+            sat_id = 784
+        
         # Include only the data with the highest quality flag
         highest_qf = (scaled['AOD_550_Dark_Target_Deep_Blue_Combined_QA_Flag'] == 3)
         lon.extend(scaled['Longitude'][highest_qf])
@@ -115,19 +144,23 @@ def load_data_day(date, dl_dir, download=True, satellite='Both', keep_files=Fals
         time.extend(time_hours[highest_qf])
         arsl_type.extend(scaled['Aerosol_Type_Land'][highest_qf])
         aod.extend(scaled['AOD_550_Dark_Target_Deep_Blue_Combined'][highest_qf])
+        stlt_idny.extend(np.full_like(time_hours[highest_qf], sat_id))
+        print(time)
+        print(stlt_idny)
     
-    fields_dict = {'LNGD' : np.array(lon).ravel(),
-                   'LTTD' : np.array(lat).ravel(),
-                   'TIME' : np.array(time).ravel(),
-                   'ARSL_TYPE' : np.array(arsl_type).ravel(),
-                   'AOD_NM550' : np.array(aod).ravel()}
+    fields_dict = {'LNGD' : np.array(lon),
+                   'LTTD' : np.array(lat),
+                   'TIME' : np.array(time),
+                   'ARSL_TYPE' : np.array(arsl_type),
+                   'AOD_NM550' : np.array(aod),
+                   'STLT_IDNY' : np.array(stlt_idny, dtype=int)}
     
     # Remove files?
     if keep_files == False:
         for f in files:
             os.remove(f)
-    if not os.listdir(dl_dir):
-        os.rmdir(dl_dir)
+        if not os.listdir(dl_dir):
+            os.rmdir(dl_dir)
     
     return fields_dict
 
@@ -255,5 +288,5 @@ class h4Parse(object):
 
 
 if __name__ == '__main__':
-#     download_data_day('20180112', '/scratch/savis/aeroct/downloads/MODIS_hdf/')
+#     load_data_day('20180112', '/scratch/savis/aeroct/downloads/MODIS_hdf/', download=True, keep_files=False)
     pass

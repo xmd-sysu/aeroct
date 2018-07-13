@@ -16,7 +16,7 @@ total_hours = lambda td: td.seconds / 36000 + td.days * 24
 user = os.getenv('USER')
 contact = '{}@metoffice.gov.uk'.format(pwd.getpwnam(user).pw_gecos)
 elements = ['YEAR', 'MNTH', 'DAY', 'HOUR', 'MINT',
-            'LTTD', 'LNGD', 'AOD_NM550', 'ARSL_TYPE']
+            'LTTD', 'LNGD', 'AOD_NM550', 'ARSL_TYPE', 'STLT_IDNY']
 
 
 def retrieve_data_range_metdb(start, stop):
@@ -44,17 +44,21 @@ def retrieve_data_range_metdb(start, stop):
     return aod_array
 
 
-def retrieve_data_day_metdb(date, minutes_err=0):
+def retrieve_data_day_metdb(date, satellite='Both', minutes_err=0):
     '''
     Retrieve MODIS AOD data at 550nm from MetDB for a single day and some data from the
     day before and after. The output is a NumPy record array containing time (YEAR, MNTH,
     DAY, HOUR, MINT), latitude (LTTD), longitude (LNGD), and AOD (AOD_NM550).
     
     Parameters:
-    date: (str or datetime) The date for which to retrieve records. Format: YYYYMMDD for
+    date : str or datetime
+        The date for which to retrieve records. Format: YYYYMMDD for
         strings. Do not include a time if a datetime is used.
-    minutes_err: (int, optional) Number of minutes of data to include from the days
-        before and after. Default: 30 (min)
+    satellite : {'Both', 'Terra, 'Aqua'}, optional (Default: 'Both')
+        Which satellite's data to load.
+    minutes_err : int, optional (Default: 30 (min))
+        Number of minutes of data to include from the days
+        before and after.
     '''
     
     if type(date) is not datetime:
@@ -64,6 +68,12 @@ def retrieve_data_day_metdb(date, minutes_err=0):
     stop = date + timedelta(days=1) + timedelta(minutes=minutes_err)
     
     aod_array = retrieve_data_range_metdb(start, stop)
+    
+    # Select only the desired satellite's data
+    if satellite == 'Terra':
+        aod_array = aod_array[aod_array['STLT_IDNY'] == 783]
+    elif satellite == 'Aqua':
+        aod_array = aod_array[aod_array['STLT_IDNY'] == 784]
     
     # Add an array record of 'TIME' for the hours since 00:00:00 on date
     time = (aod_array['DAY'] - date.day) *24 + aod_array['HOUR'] + aod_array['MINT'] / 60

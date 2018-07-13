@@ -24,6 +24,13 @@ import metum
 
 scratch_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
+# How to output the names of the data sets
+name = {'aeronet': 'AERONET',
+        'modis': 'MODIS',
+        'modis_t' : 'MODIS_Terra',
+        'modis_a' : 'MODIS_Aqua',
+        'metum': 'Unified_Model'}
+
 
 class DataFrame():
     '''
@@ -213,10 +220,13 @@ def load(data_set, date, forecast_time=0, src=None,
     if dl_dir[-1] != '/':
         dl_dir = dl_dir + '/'
     
+    ds_name = name[data_set]
+    
     if data_set == 'aeronet':
         dl_dir = dl_dir + 'AERONET/'
+        filepath = '{0}{1}_{2}'.format(dl_dir, ds_name, date)
         
-        if (not os.path.exists('{}AERONET_{}'.format(dl_dir, date))) | (dl_save == 'f'):
+        if (not os.path.exists(filepath)) | (dl_save == 'f'):
             print('Downloading AERONET data for ' + date +'.')
             aod_string = aeronet.download_data_day(date)
             
@@ -226,12 +236,12 @@ def load(data_set, date, forecast_time=0, src=None,
                 if not os.path.exists(dl_dir):
                     os.makedirs(dl_dir)
                 
-                os.system('touch {}AERONET_{}'.format(dl_dir, date))
-                with open('{}AERONET_{}'.format(dl_dir, date), 'w') as w:
-                    print('Saving data to {}AERONET_{}.'.format(dl_dir, date))
+                os.system('touch {}'.format(filepath))
+                with open(filepath, 'w') as w:
+                    print('Saving data to {}'.format(filepath))
                     pickle.dump(aod_string, w, -1)
         else:
-            with open('{}AERONET_{}'.format(dl_dir, date), 'r') as r:
+            with open(filepath, 'r') as r:
                     aod_string = pickle.load(r)
         
         aod_df = aeronet.parse_data(aod_string)
@@ -240,17 +250,29 @@ def load(data_set, date, forecast_time=0, src=None,
         print('Complete.\n')
         return DataFrame(*parameters, data_set=data_set)
     
-    elif data_set == 'modis':
-        dl_dir_mod = dl_dir + 'MODIS/'
+    elif data_set[:5] == 'modis':
+        if data_set == 'modis_t':
+            satellite = 'Terra'
+        elif data_set == 'modis_a':
+            satellite = 'Aqua'
+        else:
+            satellite = 'Both'
         
-        if (not os.path.exists('{}MODIS_{}'.format(dl_dir_mod, date))) | (dl_save == 'f'):
+        dl_dir_mod = dl_dir + 'MODIS/'
+        filepath = '{0}{1}_{2}'.format(dl_dir_mod, ds_name, date)
+        modis_filepath = '{}MODIS_{}'.format(dl_dir_mod, date)
+        
+        if (not os.path.exists(filepath)) & (not os.path.exists(modis_filepath)) | \
+                                                                    (dl_save == 'f'):
             
             if (src == None) | (src == 'MetDB'):
-                print('Extracting MODIS data from MetDB for {}.'.format(date))
-                aod_dict = modis.retrieve_data_day_metdb(date)
+                print('Extracting {} data from MetDB for {}.'.format(ds_name, date))
+                aod_dict = modis.retrieve_data_day_metdb(date, satellite)
+            
             elif src == 'NASA':
-                print('Downloading MODIS data for {}.'.format(date))
-                aod_dict = modis.load_data_day(date, dl_dir=dl_dir+'MODIS_hdf/', keep_files=True)
+                print('Downloading {} data for {}.'.format(ds_name, date))
+                aod_dict = modis.load_data_day(date,  dl_dir=dl_dir+'MODIS_hdf/',
+                                               satellite=satellite, keep_files=True)
             
             # Save data
             if (dl_save == True) | (dl_save == 'f'):
@@ -258,16 +280,19 @@ def load(data_set, date, forecast_time=0, src=None,
                 if not os.path.exists(dl_dir_mod):
                     os.makedirs(dl_dir_mod)
                 
-                os.system("touch '{}MODIS_{}'".format(dl_dir_mod, date))
-                with open('{}MODIS_{}'.format(dl_dir_mod, date), 'w') as w:
-                    print('Saving data to {}MODIS_{}.'.format(dl_dir_mod, date))
+                os.system('touch {}'.format(filepath))
+                with open(filepath, 'w') as w:
+                    print('Saving data to {}.'.format(filepath))
                     pickle.dump(aod_dict, w, -1)
+        elif os.path.exists(filepath):
+            with open(filepath, 'r') as r:
+                    aod_dict = pickle.load(r)
         else:
-            with open('{}MODIS_{}'.format(dl_dir_mod, date), 'r') as r:
+            with open(modis_filepath, 'r') as r:
                     aod_dict = pickle.load(r)
         
         print('Processing MODIS data...', end='')
-        parameters = modis.process_data(aod_dict, date)
+        parameters = modis.process_data(aod_dict, date, satellite)
         print('Complete.\n')
         return DataFrame(*parameters, data_set=data_set)
     

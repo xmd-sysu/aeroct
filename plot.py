@@ -32,7 +32,11 @@ with warnings.catch_warnings():
     from iris import plot as iplt, analysis
 
 # How to output the names of the data sets
-name = {'aeronet': 'AERONET', 'modis': 'MODIS', 'metum': 'Unified Model'}
+name = {'aeronet': 'AERONET',
+        'modis': 'MODIS',
+        'modis_t' : 'MODIS Terra',
+        'modis_a' : 'MODIS Aqua',
+        'metum': 'Unified Model'}
 
 
 def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):
@@ -53,7 +57,7 @@ def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):
           For example if your data range from -15.0 to +5.0 and
           you want the center of the colormap at 0.0, `midpoint`
           should be set to  1 - 5/(5 + 15)) or 0.75
-      stop : Offset from highets point in the colormap's range.
+      stop : Offset from highest point in the colormap's range.
           Defaults to 1.0 (no upper ofset). Should be between
           0.0 and 1.0.
     '''
@@ -116,18 +120,22 @@ def plot_anet_site(df, site=0):
 def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
              show=True, grid_size=0.5):
     '''
-    This can be used to plot the daily average of the AOD either at individual sites
-    or on a grid.
+    For DataFrames this function will plot the daily average of the AOD at individual
+    sites for AERONET data, otherwise on a grid.
+    For MatchFrames this the difference in AOD is plotted (data_set[1] - data_set[0]).
+    This will be displayed as individual sites if AERONET data is included, otherwise on
+    a grid.
     
     Parameters:
+    df : AeroCT DataFrame or MatchFrame
     lat : tuple, optional (Default: (-90, 90))
         A tuple of the latitude bounds of the plot in degrees.
     lon : tuple, optional (Default: (-180, 180))
         A tuple of the longitude bounds of the plot in degrees.
     plot_type : str, optional (Default: 'scatter')
-        The type of plot to produce. 'sites' for a plot of individual sites for AERONET
-        data, 'scatter' to plot a scatter grid of all AOD data, 'pcolormesh' or
-        'contourf' for griddded plots.
+        The type of plot to produceif it does not contain AERONET data. 'scatter' to plot
+        a scatter grid of all AOD data, and 'pcolormesh' or 'contourf' for griddded
+        plots.
     show : bool, optional (Default: True)
         If True the figure is shown, otherwise it is returned 
     grid_size : float, optional (Default: 1)
@@ -211,10 +219,6 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
         
         # Find the data within the given bounds
         aod_diff = df.data_f[1, in_bounds] - df.data_f[0, in_bounds]
-        data_min = np.min(aod_diff)
-        data_max = np.max(aod_diff)
-        cmap = shiftedColorMap(match_frame_cmap,
-                               midpoint=data_min/(data_min-data_max))
         
         # USE IRIS PLOT IF THERE IS A CUBE IN THE DATA FRAME
         if type(df.cube) != type(None):
@@ -239,7 +243,7 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
             aod_site_avg = np.mean(aod_diff * in_sites, axis=1)
 #             aod_site_std = np.sqrt(np.mean(aod_diff**2 * in_sites, axis=1) - aod_site_avg**2)
             
-            # Shift colourmap to only include average site data
+            # Shift colour map to have a midpoint of zero
             data_min = np.min(aod_site_avg)
             data_max = np.max(aod_site_avg)
             cmap = shiftedColorMap(match_frame_cmap,
@@ -265,7 +269,13 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
             dists = tree.query(xi)[0]
             # Copy original result but mask missing values with NaNs
             aod_grid[dists > THRESHOLD] = np.nan
-                      
+            
+            # Shift colour map to have a midpoint of zero
+            data_min = np.nanmin(aod_grid)
+            data_max = np.nanmax(aod_grid)
+            cmap = shiftedColorMap(match_frame_cmap,
+                                   midpoint=data_min/(data_min-data_max))
+            
             if plot_type == 'pcolormesh':
                 plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=cmap)
             elif plot_type == 'contourf':
