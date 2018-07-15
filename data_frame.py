@@ -5,14 +5,10 @@ Created on Jun 22, 2018
 
 '''
 from __future__ import print_function, division
-import numpy as np
-import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-from datetime import datetime, timedelta
-from scipy import stats
 import os
-import warnings
-from scipy.interpolate import griddata
+from datetime import timedelta
+import numpy as np
+from scipy import stats
 try:
     import cPickle as pickle
 except ModuleNotFoundError:
@@ -22,7 +18,7 @@ import aeronet
 import modis
 import metum
 
-scratch_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
+SCRATCH_PATH = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
 # How to output the names of the data sets
 name = {'aeronet': 'AERONET',
@@ -80,7 +76,7 @@ class DataFrame():
         return [self.date + timedelta(hours=h) for h in self.times]
     
     
-    def dump(self, filename=None, dir_path=scratch_path+'data_frames/'):
+    def dump(self, filename=None, dir_path=SCRATCH_PATH+'data_frames/'):
         '''
         Save the data frame as a file in the chosen location. Note that saving and
         loading large data frames can take some time.
@@ -149,7 +145,7 @@ class MatchFrame():
         # Stats
         self.RMS = np.sqrt(np.mean((self.data_f[1] - self.data_f[0])**2))   # Root mean square
         self.BIAS_MEAN = np.mean(self.data_f[1] - self.data_f[0])           # y - x mean
-        self.BIAS_STD = np.std(self.data_f[1] - self.data_f[0])             # y - x standard deviation
+        self.BIAS_STD = np.std(self.data_f[1] - self.data_f[0])             # standard deviation
         self.R_SLOPE, self.R_INTERCEPT, self.R = \
             stats.linregress(self.data_f[0], self.data_f[1])[:3]            # Regression and Pearson's correlation coefficient
     
@@ -158,7 +154,7 @@ class MatchFrame():
         return [self.date + timedelta(hours=h) for h in self.times]
     
     
-    def dump(self, filename=None, dir_path=scratch_path+'data_frames/'):
+    def dump(self, filename=None, dir_path=SCRATCH_PATH+'data_frames/'):
         '''
         Save the data frame as a file in the chosen location. Note that saving and
         loading large data frames can take some time. The filename is returned.
@@ -172,11 +168,11 @@ class MatchFrame():
         # Make directory if it does not exist
         os.system('mkdir -p {}'.format(dir_path))
         
-        if filename == None:
+        if filename is None:
             
             if type(self.data_sets) == tuple:
                 filename = '{}-{}_{}_'.format(self.data_sets[1], self.data_sets[0],
-                                                  self.date.strftime('%Y%m%d'))
+                                              self.date.strftime('%Y%m%d'))
             else:
                 raise ValueError, 'data_sets attribute invalid. Cannot create filename'
         
@@ -195,7 +191,7 @@ class MatchFrame():
 
 
 def load(data_set, date, forecast_time=0, src=None,
-         dl_save=True, dl_dir=scratch_path+'downloads/'):
+         dl_save=True, dl_dir=SCRATCH_PATH+'downloads/'):
     '''
     Load a data frame for a given date using data from either AERONET, MODIS, or the
     Unified Model (metum). This will allow it to be matched and compared with other data
@@ -231,7 +227,7 @@ def load(data_set, date, forecast_time=0, src=None,
             aod_string = aeronet.download_data_day(date)
             
             # Save data
-            if (dl_save == True) | (dl_save == 'f'):
+            if (dl_save is True) | (dl_save == 'f'):
                 
                 if not os.path.exists(dl_dir):
                     os.makedirs(dl_dir)
@@ -242,7 +238,7 @@ def load(data_set, date, forecast_time=0, src=None,
                     pickle.dump(aod_string, w, -1)
         else:
             with open(filepath, 'r') as r:
-                    aod_string = pickle.load(r)
+                aod_string = pickle.load(r)
         
         aod_df = aeronet.parse_data(aod_string)
         print('Processing AERONET data...', end='')
@@ -265,17 +261,17 @@ def load(data_set, date, forecast_time=0, src=None,
         if (not os.path.exists(filepath)) & (not os.path.exists(modis_filepath)) | \
                                                                     (dl_save == 'f'):
             
-            if (src == None) | (src == 'MetDB'):
+            if (src is None) | (src == 'MetDB'):
                 print('Extracting {} data from MetDB for {}.'.format(ds_name, date))
                 aod_dict = modis.retrieve_data_day_metdb(date, satellite)
             
             elif src == 'NASA':
                 print('Downloading {} data for {}.'.format(ds_name, date))
-                aod_dict = modis.load_data_day(date,  dl_dir=dl_dir+'MODIS_hdf/',
+                aod_dict = modis.load_data_day(date, dl_dir=dl_dir+'MODIS_hdf/',
                                                satellite=satellite, keep_files=True)
             
             # Save data
-            if (dl_save == True) | (dl_save == 'f'):
+            if (dl_save is True) | (dl_save == 'f'):
                 
                 if not os.path.exists(dl_dir_mod):
                     os.makedirs(dl_dir_mod)
@@ -286,10 +282,10 @@ def load(data_set, date, forecast_time=0, src=None,
                     pickle.dump(aod_dict, w, -1)
         elif os.path.exists(filepath):
             with open(filepath, 'r') as r:
-                    aod_dict = pickle.load(r)
+                aod_dict = pickle.load(r)
         else:
             with open(modis_filepath, 'r') as r:
-                    aod_dict = pickle.load(r)
+                aod_dict = pickle.load(r)
         
         print('Processing MODIS data...', end='')
         parameters = modis.process_data(aod_dict, date, satellite)
@@ -315,7 +311,7 @@ def load(data_set, date, forecast_time=0, src=None,
         raise ValueError, 'Invalid data set: {}'.format(data_set)
 
 
-def load_from_file(filename, dir_path=scratch_path+'data_frames'):
+def load_from_file(filename, dir_path=SCRATCH_PATH+'data_frames'):
     '''
     Load the data frame from a file in the chosen location. Note that saving and
     loading large data frames can take some time.

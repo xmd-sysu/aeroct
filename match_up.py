@@ -1,6 +1,6 @@
 '''
 This module contains the functions required to match up data from two data frames in both
-time and space. 
+time and space.
 
 Created on Jun 27, 2018
 
@@ -13,9 +13,8 @@ import warnings
 import numpy as np
 from scipy.spatial import cKDTree
 from data_frame import MatchFrame
-import time
 
-div0 = lambda a, b: np.divide(a, b, out=np.zeros_like(a), where=b!=0)
+div0 = lambda a, b: np.divide(a, b, out=np.zeros_like(a), where=(b != 0))
 
 
 def getnn(d1, d2, r, k=5):
@@ -178,7 +177,7 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
     
     # Return only elements for which there is both satellite and AERONET data
     r = (num[0] > 0) & (num[1] > 0)
-    return [avg[:,r], std[:,r], num[:,r], lons[r], lats[r], times[r]]
+    return [avg[:, r], std[:, r], num[:, r], lons[r], lats[r], times[r]]
 
 
 def model_anet_match(df_m, df_a, match_time, match_rad):
@@ -248,9 +247,9 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
     # AERONET site so that it may be passed to getnn()
     # Firstly we will get the indices
     N = 50
-    lon_diffs = np.abs(lons[:,np.newaxis] - df_m.longitudes)
+    lon_diffs = np.abs(lons[:, np.newaxis] - df_m.longitudes)
     site_lon_idx = np.argmin(lon_diffs, axis=1)
-    lat_diffs = np.abs(lats[:,np.newaxis] - df_m.latitudes)
+    lat_diffs = np.abs(lats[:, np.newaxis] - df_m.latitudes)
     site_lat_idx = np.argmin(lat_diffs, axis=1)
     site_idx_grid = np.array([np.mgrid[idx[0]-N/2 : idx[0]+N/2+1, idx[1]-N/2 : idx[1]+N/2+1]
                               for idx in zip(site_lon_idx, site_lat_idx)], dtype=np.int)
@@ -267,7 +266,7 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
     m_lats = df_m.latitudes[m_lat_idx]
     m_ll = zip(m_lons, m_lats)
     m_aod = df_m.aod_d[:, m_lat_idx, m_lon_idx]
-        
+    
     # Now find the nearest neighbours and average
     m_aod_avg = np.zeros_like(a_aod_avg)
     m_aod_std = np.zeros_like(a_aod_std)
@@ -305,7 +304,7 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
     
     # Return only elements for which there is both satellite and AERONET data
     r = (num[0] > 0) & (num[1] > 0)
-    return [avg[:,r], std[:,r], num[:,r], lons[r], lats[r], times[r]]
+    return [avg[:, r], std[:, r], num[:, r], lons[r], lats[r], times[r]]
 
 
 def model_sat_match(df_m, df_s, match_time, match_dist):
@@ -450,7 +449,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
      
     # Return only elements for which there is both model and satellite data
     r = (aod_num[0] > 0) & (aod_num[1] > 0)
-    return [aod_avg[:,r], aod_std[:,r], aod_num[:,r], lons[r], lats[r], times_arr[r]]
+    return [aod_avg[:, r], aod_std[:, r], aod_num[:, r], lons[r], lats[r], times_arr[r]]
 
 
 
@@ -484,7 +483,7 @@ def collocate(df1, df2, match_time=30, match_rad=25):
     match_rad = np.arcsin(match_rad / 6371) * 180 / np.pi
     
     # Satellite-AERONET match-up
-    if (df1.cube == None) & (df2.cube == None):
+    if (df1.cube is None) & (df2.cube is None):
         
         if df2.data_set == 'aeronet':
             # params  has the form [aod, std, num, lon, lat, time]
@@ -521,7 +520,7 @@ def collocate(df1, df2, match_time=30, match_rad=25):
                           df1.wavelength, forecasts, data_sets, aod_type=1)
     
     # Model-Satellite match-up
-    elif (df1.cube != None) & (df2.cube == None):
+    elif (df1.cube != None) & (df2.cube is None):
         params = model_sat_match(df1, df2, match_time, match_rad)
         
         [aod, std, num, lon, lat, time] = params
@@ -530,7 +529,7 @@ def collocate(df1, df2, match_time=30, match_rad=25):
                           2 * match_rad, df1.wavelength, forecasts, data_sets, aod_type=1)
     
     # Same as above but the other way around
-    elif (df1.cube == None) & (df2.cube != None):
+    elif (df1.cube is None) & (df2.cube != None):
         params = model_sat_match(df2, df1, match_time, match_rad)
         param012 = [params[i][::-1] for i in range(3)]
         params = param012 + params[3:]
@@ -569,6 +568,9 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         
         return MatchFrame(aod, std, num, lon_f, lat_f, times, df1.date, None, None,
                           df1.wavelength, forecasts, data_sets, aod_type=1, cube=cube)
+    
+    else:
+        raise ValueError('Unrecognised data frame types.')
 
 
 if __name__ == '__main__':
@@ -578,10 +580,8 @@ if __name__ == '__main__':
     Lat2 = np.random.random(206)
     d1 = np.asarray(zip(Lon1, Lat1))
     d2 = np.asarray(zip(Lon2, Lat2))
-    tic = time.time()
     i, d = getnn(d1, d2, 0.1, k=2)
-    toc = time.time()
-    print(toc-tic)
 #     print(i)
 #     print(d)
 #     print(d1[i])
+    
