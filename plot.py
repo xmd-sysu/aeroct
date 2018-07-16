@@ -129,7 +129,7 @@ def plot_anet_site(df, site=0):
     plt.show()
     
 
-def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
+def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
              show=True, grid_size=0.5, vmin=None, vmax=None):
     '''
     For DataFrames this function will plot the daily average of the AOD at individual
@@ -140,13 +140,19 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
     
     Parameters:
     df : AeroCT DataFrame or MatchFrame
+    aod_type : {None, 'total' or 'dust'} (Default: None)
+        This describes which AOD data to plot if the data frame is a DataFrame instance.
+        If None is chosen and the data frame only includes a single type of AOD then that
+        will be plotted. If it includes both then the total AOD will be plotted. If an
+        AOD type is chosen which the data frame does not include then a ValueError will
+        be raised.
     lat : tuple, optional (Default: (-90, 90))
         A tuple of the latitude bounds of the plot in degrees.
     lon : tuple, optional (Default: (-180, 180))
         A tuple of the longitude bounds of the plot in degrees.
     plot_type : str, optional (Default: 'scatter')
-        The type of plot to produceif it does not contain AERONET data. 'scatter' to plot
-        a scatter grid of all AOD data, and 'pcolormesh' or 'contourf' for griddded
+        The type of plot to produce if it does not contain AERONET data. 'scatter' to
+        plot a scatter grid of all AOD data, and 'pcolormesh' or 'contourf' for griddded
         plots.
     show : bool, optional (Default: True)
         If True the figure is shown, otherwise it is returned 
@@ -161,36 +167,42 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
     fig = plt.figure()
     ax = plt.axes(projection=ccrs.PlateCarree())
     
-    # Latitude and longitude bounds
-    in_bounds = (df.longitudes > lon[0]) & (df.longitudes < lon[1]) & \
-                (df.latitudes > lat[0]) & (df.latitudes < lat[1])
-    lons = df.longitudes[in_bounds]
-    lats = df.latitudes[in_bounds]
     plt.xlim(lon)
     plt.ylim(lat)
     
     data_frame_cmap = cm.get_cmap('Oranges')
     match_frame_cmap = cm.get_cmap('RdBu_r')
     
-    if df.__class__.__name__ == 'DataFrame':
+    # USE IRIS PLOT IF THERE IS A CUBE IN THE DATA FRAME
+    if type(df.cube) != type(None):
+        
+        day_avg_cube = df.cube.collapsed('time', analysis.MEAN)
+        
+        if df.__class__.__name__ == 'DataFrame':
+            plt.title('Daily AOD for {} from {}'.format(df.date.date(), name[df.data_set]))
+            cmap = data_frame_cmap
+        else:
+            plt.title('Daily AOD difference : {0} - {1} for {2}'\
+                      .format(name[df.data_sets[1]], name[df.data_sets[0]], df.date.date()))
+            cmap = shiftedColorMap(match_frame_cmap, day_avg_cube.data, vmin, vmax)
+        
+        if plot_type == 'pcolormesh':
+            iplt.pcolormesh(day_avg_cube, cmap=data_frame_cmap, vmin=vmin, vmax=vmax)
+        elif plot_type == 'contourf':
+            iplt.contourf(day_avg_cube, cmap=data_frame_cmap, vmin=vmin, vmax=vmax)
+    
+    elif df.__class__.__name__ == 'DataFrame':
         plt.title('Daily AOD for {} from {}'.format(df.date.date(), name[df.data_set]))
         
-        if type(df.cube) == type(None):
-            # Get data in bounds
-            aod = df.aod[in_bounds]
-        
-        # USE IRIS PLOT IF THERE IS A CUBE IN THE DATA FRAME
-        if type(df.cube) != type(None):
-            
-            day_avg_cube = df.cube.collapsed('time', analysis.MEAN)
-            
-            if plot_type == 'pcolormesh':
-                iplt.pcolormesh(day_avg_cube, cmap=data_frame_cmap, vmin=vmin, vmax=vmax)
-            if plot_type == 'contourf':
-                iplt.contourf(day_avg_cube, cmap=data_frame_cmap, vmin=vmin, vmax=vmax)
+        # Select the total or dust AOD data which is in the given bounds
+        aod, lons, lats = df.get_data(aod_type)[:3]
+        in_bounds = (lon[0] < lons) & (lons < lon[1]) & (lat[0] < lats) & (lats < lat[1])
+        aod = aod[in_bounds]
+        lons = lons[in_bounds]
+        lats = lats[in_bounds]
         
         # PLOT AOD AT AERONET SITES AS A SCATTER PLOT
-        elif df.data_set == 'aeronet':
+        if df.data_set == 'aeronet':
             # Get the list of data points at each location
             site_lons, i_site = np.unique(lons, return_index=True)
             site_lats = lats[i_site]
@@ -236,25 +248,18 @@ def plot_map(df, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
                              vmin=vmin, vmax=vmax)
     
     elif df.__class__.__name__ == 'MatchFrame':
-        plt.title('Daily AOD difference : {1} - {2} for {0}'\
-                  .format(df.date.date(), name[df.data_sets[1]], name[df.data_sets[0]]))
+        plt.title('Daily AOD difference : {0} - {1} for {2}'\
+                  .format(name[df.data_sets[1]], name[df.data_sets[0]], df.date.date()))
         
-        # Find the data within the given bounds
-        aod_diff = df.data_f[1, in_bounds] - df.data_f[0, in_bounds]
-        
-        # USE IRIS PLOT IF THERE IS A CUBE IN THE DATA FRAME
-        if type(df.cube) != type(None):
-            
-            day_avg_cube = df.cube.collapsed('time', analysis.MEAN)
-            cmap = shiftedColorMap(match_frame_cmap, day_avg_cube.data, vmin, vmax)
-            
-            if plot_type == 'pcolormesh':
-                iplt.pcolormesh(day_avg_cube, cmap=cmap, vmin=vmin, vmax=vmax)
-            if plot_type == 'contourf':
-                iplt.contourf(day_avg_cube, cmap=cmap, vmin=vmin, vmax=vmax)
+        # Find the data within the given longitude and latitude bounds
+        in_bounds = (df.longitudes > lon[0]) & (df.longitudes < lon[1]) & \
+                    (df.latitudes > lat[0]) & (df.latitudes < lat[1])
+        lons = df.longitudes[in_bounds]
+        lats = df.latitudes[in_bounds]
+        aod_diff = df.data[1, in_bounds] - df.data[0, in_bounds]
         
         # If AERONET is included plot the sites on a map
-        elif np.any([df.data_sets[i] == 'aeronet' for i in [0,1]]):
+        if np.any([df.data_sets[i] == 'aeronet' for i in [0,1]]):
             # Get the list of data points at each location
             site_lons, i_site = np.unique(lons, return_index=True)
             site_lats = lats[i_site]

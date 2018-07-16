@@ -11,6 +11,7 @@ TODO: Add regridding of one cube to the other in model-model match-up
 from __future__ import division, print_function
 import warnings
 import numpy as np
+from matplotlib import pyplot as plt
 from scipy.spatial import cKDTree
 from data_frame import MatchFrame
 
@@ -82,7 +83,7 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
     match_rad : int
         The radius for which data will be matched and averaged in degrees.
     '''
-    if (type(df_s.aod) == type(None)) | (type(df_a.aod) == type(None)):
+    if (df_s.aod[0] is None) | (df_a.aod[0] is None):
         raise ValueError('Both data frames must have total AOD data.')
     
     K = 10  # Number of nearest neighbours to find of each site
@@ -111,7 +112,7 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
         a_lats_t = df_a.latitudes[a_time == t]
         # from_site is a matrix of booleans, the 1st index: site, 2nd: data point
         from_site = (a_lats_t == site_lats.repeat(len(a_lats_t), axis=1))
-        site_aod = np.ma.masked_where(~from_site, df_a.aod[a_time == t] * from_site)
+        site_aod = np.ma.masked_where(~from_site, df_a.aod[0][a_time == t] * from_site)
         
         a_aod_avg[i_t] = np.mean(site_aod, axis=1)
         a_aod_std[i_t] = np.std(site_aod, axis=1)
@@ -146,7 +147,7 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
     
     for i_t, t in enumerate(times):
         # Add nan to prevent out of array references from getnn()
-        s_aod_t = np.append(df_s.aod[s_time == t], np.nan)
+        s_aod_t = np.append(df_s.aod[0][s_time == t], np.nan)
         s_ll_t = s_ll[s_time == t]
         
         # For each site find the indices of the nearest 10 satellite points within
@@ -198,7 +199,8 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
         (Only accurate for less than ~2.5)
     '''
     
-    if (type(df_m.aod_d) == type(None)) | (type(df_a.aod_d) == type(None)):
+    if ((df_m.aod[1] is None) & (df_m.dust_filters is None)) | \
+       ((df_a.aod[1] is None) & (df_a.dust_filters is None)):
         raise ValueError('Both data frames must have dust AOD data.')
     
     K = 10  # Number of nearest neighbours to find for each site
@@ -227,7 +229,7 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
         a_lats_t = df_a.latitudes[a_time == t]
         # from_site is a matrix of booleans, the 1st index: site, 2nd: data point
         from_site = (a_lats_t == site_lats.repeat(len(a_lats_t), axis=1))
-        site_aod = np.ma.masked_where(~from_site, df_a.aod_d[a_time == t] * from_site)
+        site_aod = np.ma.masked_where(~from_site, df_a.aod[1][a_time == t] * from_site)
         
         a_aod_avg[i_t] = np.mean(site_aod, axis=1)
         a_aod_std[i_t] = np.std(site_aod, axis=1)
@@ -265,7 +267,7 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
     m_lons = df_m.longitudes[m_lon_idx]
     m_lats = df_m.latitudes[m_lat_idx]
     m_ll = zip(m_lons, m_lats)
-    m_aod = df_m.aod_d[:, m_lat_idx, m_lon_idx]
+    m_aod = df_m.aod[1][:, m_lat_idx, m_lon_idx]
     
     # Now find the nearest neighbours and average
     m_aod_avg = np.zeros_like(a_aod_avg)
@@ -324,21 +326,12 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
         The size of the grid cells for which data will be matched and averaged in degrees.
     '''
     
-    if (type(df_m.aod_d) == type(None)) | (type(df_s.aod_d) == type(None)):
+    if ((df_m.aod[1] is None) & (df_m.dust_filters is None)) | \
+       ((df_s.aod[1] is None) & (df_s.dust_filters is None)):
         raise ValueError('Both data frames must have dust AOD data.')
     
-    # Include only dust AOD data for MODIS
-    if df_s.data_set[:5] == 'modis':
-        is_dust = df_s.aod_d[1]
-        s_times = df_s.times[is_dust]
-        s_lons = df_s.longitudes[is_dust]
-        s_lats = df_s.latitudes[is_dust]
-        s_aod_d = df_s.aod_d[0]
-    else:
-        s_times = df_s.times
-        s_lons = df_s.longitudes
-        s_lats = df_s.latitudes
-        s_aod_d = df_s.aod_d
+    # Include only dust AOD data
+    s_aod, s_lons, s_lats, s_times = df_s.get_data(aod_type='dust', dust_filter_fields=['NONE'])
     
     # Bin the time
     t_mult = 60 / match_time
@@ -358,6 +351,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
     s_lats = np.rint(s_lats / match_dist) * match_dist
     s_ll = np.array([s_lons, s_lats])
     m_lons = np.rint((df_m.longitudes - match_dist/2) / match_dist) * match_dist + match_dist/2
+    m_lons = np.sort(m_lons)
     m_lats = np.rint(df_m.latitudes / match_dist) * match_dist
      
     lons, lats, times_arr = [], [], []
@@ -366,8 +360,8 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
      
     for time in times:
         s_ll_t = s_ll[:, s_times==time]
-        s_aod_t = s_aod_d[s_times==time]
-        m_aod_t = df_m.aod_d[m_times==time].ravel()
+        s_aod_t = s_aod[s_times==time]
+        m_aod_t = df_m.aod[1][m_times==time].ravel()
          
         # FIND THE MEAN AND STANDARD DEVIATION OF THE SATELLITE DATA IN EACH GRID CELL
         # Sort the latitudes and longitudes to bring duplicate locations together
@@ -417,7 +411,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
         m_loc_comparator = m_grid_lon + m_grid_lat * 10000
         s_loc_comparator = lons_t + lats_t * 10000
         in_loc_t = np.in1d(m_loc_comparator, s_loc_comparator)
-         
+        
         # Get model data in each satellite location
         m_aod_avg_t = m_aod_avg_t[in_loc_t]
         m_aod_std_t = m_aod_std_t[in_loc_t]
@@ -542,19 +536,23 @@ def collocate(df1, df2, match_time=30, match_rad=25):
     # Model-Model match-up
     elif (df1.cube != None) & (df2.cube != None):
         
-        if (type(df1.aod_d) == type(None)) | (type(df2.aod_d) == type(None)):
+        if ((df1.aod[1] is None) & (df1.dust_filter is None)) | \
+           ((df2.aod[1] is None) & (df2.dust_filter is None)):
             raise ValueError('Both data frames must have dust AOD data.')
+        
+        # Get the dust AOD values
+        aod1, aod2 = df1.aod[1], df2.aod[1]
         
         # Get times shared between the two data frames
         in_shared_times = np.array([time in df2.times for time in df1.times])
         times = df1.times[in_shared_times]
         times1_idx = np.arange(len(df1.times))[in_shared_times]
         
-        aod = np.zeros((2, len(times)) + df1.aod_d[0].shape)
-        cube_data = np.zeros((len(times),) + df1.aod_d[0].shape)
+        aod = np.zeros((2, len(times)) + aod1[0].shape)
+        cube_data = np.zeros((len(times),) + aod1[0].shape)
         for i_t, time in enumerate(times):
-            aod[0, i_t] = df1.aod_d[df1.times==time][0]
-            aod[1, i_t] = df2.aod_d[df2.times==time][0]
+            aod[0, i_t] = aod1[df1.times==time][0]
+            aod[1, i_t] = aod2[df2.times==time][0]
             cube_data[i_t] = aod[1, i_t] - aod[0, i_t]
             
         # Get data to put into MatchFrame

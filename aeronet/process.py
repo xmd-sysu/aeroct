@@ -42,7 +42,7 @@ def interpolate_aod(aeronet_df, wavelength):
     else:
         raise ValueError, 'Wavelength ({} nm) out of range.'.format(wavelength)
     
-    return aod_t2, aod_c2
+    return [aod_t2, aod_c2]
 
 
 def process_data(aeronet_df, date, wavelength=550):
@@ -65,7 +65,7 @@ def process_data(aeronet_df, date, wavelength=550):
     if (wavelength >= 450) & (wavelength <= 550):
         aeronet_df = aeronet_df[np.isfinite(aeronet_df['Total_AOD_500nm[tau_a]'])]
     
-    aod_t, aod_c = interpolate_aod(aeronet_df, wavelength)
+    aod = interpolate_aod(aeronet_df, wavelength) # AOD data in form: [Total, Coarse-mode]
     lat = np.array(aeronet_df['Site_Latitude(Degrees)'])
     lon = np.array(aeronet_df['Site_Longitude(Degrees)'])
     
@@ -73,7 +73,7 @@ def process_data(aeronet_df, date, wavelength=550):
     total_hours = lambda td: td.seconds / 3600 + td.days * 24
     time = np.array([total_hours(dt - date) for dt in aeronet_df['datetime']])
     
-    return [aod_t, aod_c, lat, lon, time, date, wavelength]
+    return [aod, lat, lon, time, date, wavelength]
 
 
 if __name__ == '__main__':

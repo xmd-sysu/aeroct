@@ -118,9 +118,14 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, keep_files=Fals
     
     # Get the fields from the files and concatenate them in lists
     lon, lat, time, arsl_type, aod, stlt_idny = [], [], [], [], [], []
+    ae_land, ssa_land, fm_frc_ocean, ae_ocean = [], [], [], []
     fieldnames = ['Longitude', 'Latitude', 'Scan_Start_Time', 'Aerosol_Type_Land', 
-                   'AOD_550_Dark_Target_Deep_Blue_Combined',
-                   'AOD_550_Dark_Target_Deep_Blue_Combined_QA_Flag']
+                  'AOD_550_Dark_Target_Deep_Blue_Combined',
+                  'AOD_550_Dark_Target_Deep_Blue_Combined_QA_Flag',
+                  'Deep_Blue_Angstrom_Exponent_Land',
+                  'Deep_Blue_Spectral_Single_Scattering_Albedo_Land',
+                  'Optical_Depth_Ratio_Small_Ocean_0.55micron',
+                  'Angstrom_Exponent_1_Ocean']
     
     for f in files[::-1]:
         parser = h4Parse(f)
@@ -142,18 +147,24 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, keep_files=Fals
         lon.extend(scaled['Longitude'][highest_qf])
         lat.extend(scaled['Latitude'][highest_qf])
         time.extend(time_hours[highest_qf])
-        arsl_type.extend(scaled['Aerosol_Type_Land'][highest_qf])
         aod.extend(scaled['AOD_550_Dark_Target_Deep_Blue_Combined'][highest_qf])
         stlt_idny.extend(np.full_like(time_hours[highest_qf], sat_id))
-        print(time)
-        print(stlt_idny)
+        arsl_type.extend(scaled['Aerosol_Type_Land'][highest_qf])
+        ae_land.extend(scaled['Deep_Blue_Angstrom_Exponent_Land'][highest_qf])
+        ssa_land.extend(scaled['Deep_Blue_Spectral_Single_Scattering_Albedo_Land'][highest_qf])
+        fm_frc_ocean.extend(scaled['Optical_Depth_Ratio_Small_Ocean_0.55micron'][highest_qf])
+        ae_ocean.extend(scaled['Angstrom_Exponent_1_Ocean'][highest_qf])
     
     fields_dict = {'LNGD' : np.array(lon),
                    'LTTD' : np.array(lat),
                    'TIME' : np.array(time),
-                   'ARSL_TYPE' : np.array(arsl_type),
                    'AOD_NM550' : np.array(aod),
-                   'STLT_IDNY' : np.array(stlt_idny, dtype=int)}
+                   'STLT_IDNY' : np.array(stlt_idny, dtype=int),
+                   'ARSL_TYPE' : np.array(arsl_type),
+                   'AE_LAND' : ae_land,
+                   'SSA_LAND' : ssa_land,
+                   'FM_FRC_OCEAN' : fm_frc_ocean,
+                   'AE_Ocean' : ae_ocean}
     
     # Remove files?
     if keep_files == False:

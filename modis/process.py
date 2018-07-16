@@ -12,7 +12,7 @@ from __future__ import division
 from datetime import datetime
 import numpy as np
 
-def process_data(aod_array, date, satellite='Both'):
+def process_data(aod_array, date, satellite='Both', src=None):
     '''
     Process the AOD data from a numpy record array into a list that may be passed into a
     data frame so that it may be compared with other data sources.
@@ -27,33 +27,54 @@ def process_data(aod_array, date, satellite='Both'):
         include a time if a datetime is used.
     satellite : {'Both', 'Terra, 'Aqua'}, optional (Default: 'Both')
         Which satellite's data to load.
+    src : str, optional (Default: None)
+        The source from which the data has been retrieved.
+        None or 'MetDB' for MetDB extraction (Note: fewer dust filters available)
+        'NASA' for download from ladsweb.modaps.eosdis.nasa.gov/archive/allData/61/
     '''
     
     if type(date) is not datetime:
         date = datetime.strptime(date, '%Y%m%d')
     
-    # Restrict the rows of the array that are used
+    # Select only the unmasked data from the chosen satellite(s)
     if satellite == 'Terra':
         chosen_sat = aod_array['STLT_IDNY'] == 783
     elif satellite == 'Aqua':
         chosen_sat = aod_array['STLT_IDNY'] == 784
     else:
         chosen_sat = True
-    not_mask = aod_array['AOD_NM550'] > -0.05
-    print(set(aod_array['ARSL_TYPE']))
-    is_dust = aod_array['ARSL_TYPE'] == 1
+    not_mask = ~aod_array['AOD_NM550'].mask
     condition = chosen_sat & not_mask
-    condition_d = chosen_sat & not_mask & is_dust
+    aod_array = aod_array[condition]
     
-    # Find the indices of the dust AODs within the total AOD array
-    condition_dust_idx = is_dust[condition]
-    dust_idx = np.indices([aod_array['ARSL_TYPE'][condition].size])[0, condition_dust_idx]
-    
-    aod = aod_array['AOD_NM550'][condition]                     # All AODs
-    aod_d = [aod_array['AOD_NM550'][condition_d], dust_idx]     # Only dust AODs
-    lat = aod_array['LTTD'][condition]
-    lon = aod_array['LNGD'][condition]
-    time = aod_array['TIME'][condition]                     # Hours since 00:00:00
+    aod = aod_array['AOD_NM550'].data   # Total AOD
+    lat = aod_array['LTTD'].data
+    lon = aod_array['LNGD'].data
+    time = aod_array['TIME'].data       # Hours since 00:00:00
     wl = 550    # wavelength [nm]
     
-    return [aod, aod_d, lat, lon, time, date, wl]
+    # Find the elements of the AOD data which satisfy various dust filter conditions
+    # Then store these filters in a dictionary
+    if (src is None) | (src == 'MetDB'):
+        filter_type_land = (aod_array['ARSL_TYPE'] == 1)
+        # No other filters possible
+        filter_ae_land = np.full_like(filter_type_land, True)
+        filter_ssa_land = np.full_like(filter_type_land, True)
+        filter_fm_frc_ocean = np.full_like(filter_type_land, True)
+        filter_ae_ocean = np.full_like(filter_type_land, True)
+    
+    elif src == 'NASA':
+        filter_type_land = (aod_array['ARSL_TYPE'] == 5)
+        filter_ae_land = (aod_array['AE_LAND'] <= 0.6)
+        filter_ssa_land = (0.878 < aod_array['SSA_LAND'] < 0.955)
+        filter_fm_frc_ocean = (aod_array['FM_FRC_OCEAN'] <= 0.45)
+        filter_ae_ocean = (aod_array['AE_OCEAN'] <= 0.6)
+    
+    dust_filter = {'ARSL_TYPE_LAND' : filter_type_land,
+                   'AE_LAND' : filter_ae_land,
+                   'SSA_LAND' : filter_ssa_land,
+                   'FM_FRC_OCEAN' : filter_fm_frc_ocean,
+                   'AE_OCEAN' : filter_ae_ocean,
+                   'NONE': np.full_like(filter_type_land, True)}
+    
+    return [[aod, None], lat, lon, time, date, wl, dust_filter]

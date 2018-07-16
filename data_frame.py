@@ -37,14 +37,13 @@ class DataFrame():
     as attributes. So each forecast time and date requires a new instance.
     '''
 
-    def __init__(self, aod, aod_d, latitudes, longitudes, times, date, wavelength=550,
+    def __init__(self, aod, latitudes, longitudes, times, date, wavelength=550,
                  data_set=None, **kw):
         # Ensure longitudes are in range [-180, 180]
         longitudes = longitudes.copy()
         longitudes[longitudes > 180] -= 360
         
-        self.aod        = aod                       # Total AOD data
-        self.aod_d      = aod_d                     # Dust component of AOD data
+        self.aod        = aod                       # AOD data [Total, Dust])
         self.longitudes = longitudes                # [degrees]
         self.latitudes  = latitudes                 # [degrees]
         self.times      = times                     # [hours since 00:00:00 on date]
@@ -53,13 +52,24 @@ class DataFrame():
         self.wavelength = wavelength                # [nm]
         self.data_set   = data_set                  # The name of the data set
         self.forecast_time = kw.setdefault('forecast_time', None)  # [hours]
-        self.cube = kw.setdefault('cube', None)    # contains iris cube if from_cube() used
+        
+        # Dictionary containing lists of indices for the total AOD data which satisfies
+        # various dust filter conditions. Only currently used for MODIS data. Eg:
+        # Aerosol_Type_Land: Aerosol_Type_Land == 5
+        # AE_Land:    Land AE < 0.6
+        # SSA_Land:    0.878 > Single Scattering Albedo (470nm) > 0.955
+        # FM_FRC_Ocean:    FM Fraction < 0.45
+        # AE_Ocean:    Ocean AE < 0.6
+        self.dust_filters = kw.setdefault('dust_filter', None)
+        
+        # Contains iris cube if from_cube() used
+        self.cube = kw.setdefault('cube', None)
     
     
     @classmethod
     def from_cube(cls, cube, data_set):
         # Create a DataFrame using a cube containing model data (dust AOD only)
-        aod_d = cube.data
+        aod = [None, cube.data]
         lons = cube.coord('longitude').points
         lats = cube.coord('latitude').points
         times = cube.coord('time').points
@@ -68,12 +78,97 @@ class DataFrame():
         wl = cube.coord('wavelength').points[0]
         fc_time = cube.coord('forecast_time').points[0]
         
-        return cls(None, aod_d, lats, lons, times, date, wl, data_set,
+        return cls(aod, lats, lons, times, date, wl, data_set,
                    forecast_time=fc_time, cube=cube)
     
     
     def datetimes(self):
         return [self.date + timedelta(hours=h) for h in self.times]
+    
+    
+    def get_data(self, aod_type=None, dust_filter_fields=None):
+        '''
+        Get an array with either all the total AOD data or the dust AOD data. This is
+        returned along with the corresponding longitudes, latitudes, and times.
+        
+        Parameters:
+        aod_type : {None, 'total, or 'dust'}, optional (Default: None)
+            The type of AOD data to return.
+            None: Return the total AOD if the data frame contains both. If it contains
+                  only one type of AOD data then that is returned instead.
+            If 'total' or 'dust' is selected and the data frame does not contain that
+            type of data then a ValueError is raised.
+        dust_filter_fields : list of str, optional
+            This is used if dust AOD is to be retrieved and the data frame does not
+            contain dust AOD data at every location (ie. MODIS data). This lists the
+            conditions to decide which AOD values are dominated by dust.
+            MODIS fields:
+            - 'ARSL_TYPE_LAND': If it has been flagged as dust already.
+            - 'AE_LAND': angstrom exponent <= 0.6 for land data.
+            - 'SSA_LAND': 0.878 < scattering albedo < 0.955 for land data.
+            - 'FM_FRC_OCEAN': fine mode fraction <= 0.45 for ocean data.
+            - 'AE_OCEAN': angstrom exponent <= 0.6 for ocean data.
+            - 'NONE: No filter.
+            By default 'ARSL_TYPE_LAND' is selected if the data has been retrieved from
+            MetDB, otherwise 'AE_LAND', 'SSA_LAND', 'FM_FRC_OCEAN' & 'AE_OCEAN' are used.
+        '''
+        get_total = (aod_type=='total') | ((aod_type is None) &
+                                           (self.aod[0] is not None))
+        get_dust = (aod_type=='dust') | ((aod_type is None) &
+                                         (self.aod[0] is None))
+        
+        # Total AOD selection
+        if get_total:
+            if self.aod[0] is None:
+                raise ValueError('The data frame does not include total AOD data.')
+            
+            aod = self.aod[0]
+            lon = self.longitudes
+            lat = self.latitudes
+            times = self.times
+        
+        elif get_dust:
+            if (self.aod[1] is None) & (self.dust_filters is None):
+                raise ValueError('The data frame does not include dust AOD data.')
+            
+            if self.cube is None:
+                
+                # If all locations have dust AOD values
+                if self.aod[1] is not None:
+                    aod = self.aod[1]
+                    lon = self.longitudes
+                    lat = self.latitudes
+                    times = self.times
+                
+                # Use the dust filter to decide which AOD values are dominated by dust
+                else:
+                    
+                    # Get default filter fields
+                    if dust_filter_fields is None:
+                        if np.all(self.dust_filters['AE_LAND']):
+                            dust_filter_fields = ['ARSL_TYPE_LAND']
+                        else:
+                            dust_filter_fields = ['AE_LAND', 'SSA_LAND',
+                                                  'FM_FRC_OCEAN', 'AE_OCEAN']
+                        
+                    dust_filters = np.array([self.dust_filters[f]
+                                             for f in dust_filter_fields])
+                    is_dust = np.prod(dust_filters, axis=0, dtype=np.bool)
+                    aod = self.aod[0][is_dust]
+                    lon = self.longitudes[is_dust]
+                    lat = self.latitudes[is_dust]
+                    times = self.times[is_dust]
+                
+            else:
+                # If a cube is used then get the longitude, latitude and time for every point
+                aod = self.aod[1].ravel()
+                axes = np.ix_(self.times, self.latitudes, self.longitudes)
+                grid = np.broadcast_arrays(*axes)
+                lon = grid[2].ravel()
+                lat = grid[1].ravel()
+                times = grid[0].ravel()
+        
+        return aod, lon, lat, times
     
     
     def dump(self, filename=None, dir_path=SCRATCH_PATH+'data_frames/'):
@@ -121,7 +216,7 @@ class MatchFrame():
 
     def __init__(self, data, data_std, data_num, longitudes, latitudes, times, date,
                  match_time, match_rad, wavelength=550, forecast_times=(None, None),
-                 data_sets=(None, None), aod_type=0, **kw):
+                 data_sets=(None, None), aod_type='total', **kw):
         self.data       = data              # Averaged AOD data (Not flattend if cube != None)
         self.data_std   = data_std          # Averaged AOD data standard deviations
         self.data_num   = data_num          # Number of values that are averaged
@@ -206,7 +301,8 @@ def load(data_set, date, forecast_time=0, src=None,
         The forecast lead time to use if metum is chosen.
     src : str, optional (Default: None)
         The source to retrieve the data from.
-        (Currently unavailable)
+        MODIS: None or 'MetDB' for MetDB extraction (Note: fewer dust filters available)
+               'NASA' to download from ladsweb.modaps.eosdis.nasa.gov/archive/allData/61/
     dl_save : bool or str, optional (Default: True)
         Choose whether to save any downloaded data. If it is 'f' then it will download
         and save, even if the file already exists.
@@ -288,9 +384,9 @@ def load(data_set, date, forecast_time=0, src=None,
                 aod_dict = pickle.load(r)
         
         print('Processing MODIS data...', end='')
-        parameters = modis.process_data(aod_dict, date, satellite)
+        parameters = modis.process_data(aod_dict, date, satellite, src=src)
         print('Complete.\n')
-        return DataFrame(*parameters, data_set=data_set)
+        return DataFrame(*parameters[:-1], data_set=data_set, dust_filter=parameters[-1])
     
     elif data_set == 'metum':
         dl_dir = dl_dir + 'UM/'
