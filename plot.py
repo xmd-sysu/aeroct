@@ -31,13 +31,6 @@ with warnings.catch_warnings():
     warnings.simplefilter("ignore", category=MatplotlibDeprecationWarning)
     from iris import plot as iplt, analysis
 
-# How to output the names of the data sets
-name = {'aeronet': 'AERONET',
-        'modis': 'MODIS',
-        'modis_t' : 'MODIS Terra',
-        'modis_a' : 'MODIS Aqua',
-        'metum': 'Unified Model'}
-
 
 def shiftedColorMap(cmap, data, vmin=None, vmax=None, midpoint=0, name='shiftedcmap'):
     '''
@@ -69,8 +62,8 @@ def shiftedColorMap(cmap, data, vmin=None, vmax=None, midpoint=0, name='shiftedc
     }
     
     
-    data_min = np.min(data)
-    data_max = np.max(data)
+    data_min = np.nanmin(data)
+    data_max = np.nanmax(data)
     if (vmin == None) & (vmin == None):
         idx_mid = (midpoint - data_min) / (data_max - data_min)
     elif vmin == None:
@@ -79,6 +72,12 @@ def shiftedColorMap(cmap, data, vmin=None, vmax=None, midpoint=0, name='shiftedc
         idx_mid = (midpoint - vmin) / (data_max - vmin)
     else:
         idx_mid = (midpoint - vmin) / (vmax - vmin)
+    
+    # Ensure the midpoint is within 0-1
+    if idx_mid < 0:
+        idx_mid = 0
+    elif idx_mid > 1:
+        idx_mid = 1
     
     # regular index to compute the colors
     reg_index = np.linspace(0, 1, 257)
@@ -127,9 +126,20 @@ def plot_anet_site(df, site=0):
     plt.plot(times, aod)#, 'ro')
     plt.title('Daily AOD from AERONET at (lon: {:.02f}, lat: {:.02f})'.format(lon, lat))
     plt.show()
+
+
+def plot_aod_hist(df, aod_type=None):
+    if df.data_set == 'metum':
+        if (aod_type is None) | (aod_type == 'dust'):
+            aod = df.aod[1]
+    else:
+        aod = df.get_data(aod_type)
+    
+    plt.hist(aod, bins=20)
+    plt.show()
     
 
-def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
+def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
              show=True, grid_size=0.5, vmin=None, vmax=None):
     '''
     For DataFrames this function will plot the daily average of the AOD at individual
@@ -140,7 +150,7 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
     
     Parameters:
     df : AeroCT DataFrame or MatchFrame
-    aod_type : {None, 'total' or 'dust'} (Default: None)
+    data_type : {None, 'total' or 'dust'} (Default: None)
         This describes which AOD data to plot if the data frame is a DataFrame instance.
         If None is chosen and the data frame only includes a single type of AOD then that
         will be plotted. If it includes both then the total AOD will be plotted. If an
@@ -179,11 +189,11 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
         day_avg_cube = df.cube.collapsed('time', analysis.MEAN)
         
         if df.__class__.__name__ == 'DataFrame':
-            plt.title('Daily AOD for {} from {}'.format(df.date.date(), name[df.data_set]))
+            plt.title('Daily AOD for {} from {}'.format(df.date.date(), df.name))
             cmap = data_frame_cmap
         else:
             plt.title('Daily AOD difference : {0} - {1} for {2}'\
-                      .format(name[df.data_sets[1]], name[df.data_sets[0]], df.date.date()))
+                      .format(df.names[1], df.names[0], df.date.date()))
             cmap = shiftedColorMap(match_frame_cmap, day_avg_cube.data, vmin, vmax)
         
         if plot_type == 'pcolormesh':
@@ -192,10 +202,10 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
             iplt.contourf(day_avg_cube, cmap=data_frame_cmap, vmin=vmin, vmax=vmax)
     
     elif df.__class__.__name__ == 'DataFrame':
-        plt.title('Daily AOD for {} from {}'.format(df.date.date(), name[df.data_set]))
+        plt.title('Daily AOD for {} from {}'.format(df.date.date(), df.name))
         
         # Select the total or dust AOD data which is in the given bounds
-        aod, lons, lats = df.get_data(aod_type)[:3]
+        aod, lons, lats = df.get_data(data_type)[:3]
         in_bounds = (lon[0] < lons) & (lons < lon[1]) & (lat[0] < lats) & (lats < lat[1])
         aod = aod[in_bounds]
         lons = lons[in_bounds]
@@ -224,7 +234,7 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
             # Using scipy.interpolate.griddata
             # First get the axes
             grid = np.mgrid[(lon[0] + grid_size/2) : lon[1] : grid_size,
-                                          (lat[0] + grid_size/2) : lat[1] : grid_size]
+                            (lat[0] + grid_size/2) : lat[1] : grid_size]
             
             ll = zip(lons, lats)
 #             # Bin the time
@@ -249,14 +259,17 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
     
     elif df.__class__.__name__ == 'MatchFrame':
         plt.title('Daily AOD difference : {0} - {1} for {2}'\
-                  .format(name[df.data_sets[1]], name[df.data_sets[0]], df.date.date()))
+                  .format(df.names[1], df.names[0], df.date.date()))
         
         # Find the data within the given longitude and latitude bounds
         in_bounds = (df.longitudes > lon[0]) & (df.longitudes < lon[1]) & \
                     (df.latitudes > lat[0]) & (df.latitudes < lat[1])
         lons = df.longitudes[in_bounds]
         lats = df.latitudes[in_bounds]
-        aod_diff = df.data[1, in_bounds] - df.data[0, in_bounds]
+        if data_type == 'time diff':
+            data = df.time_diff[in_bounds]
+        else:
+            data = df.data[1, in_bounds] - df.data[0, in_bounds]
         
         # If AERONET is included plot the sites on a map
         if np.any([df.data_sets[i] == 'aeronet' for i in [0,1]]):
@@ -265,13 +278,13 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
             site_lats = lats[i_site]
             in_sites = site_lons[:, np.newaxis] == lons
             # Average the AOD at each site and take std
-            aod_site_avg = np.mean(aod_diff * in_sites, axis=1)
+            site_data_avg = np.mean(data * in_sites, axis=1)
 #             aod_site_std = np.sqrt(np.mean(aod_diff**2 * in_sites, axis=1) - aod_site_avg**2)
             
             # Shift colour map to have a midpoint of zero
-            cmap = shiftedColorMap(match_frame_cmap, aod_site_avg, vmin, vmax)
+            cmap = shiftedColorMap(match_frame_cmap, site_data_avg, vmin, vmax)
             
-            plt.scatter(site_lons, site_lats, c=aod_site_avg, s=100, cmap=cmap,
+            plt.scatter(site_lons, site_lats, c=site_data_avg, s=100, cmap=cmap,
                         vmin=vmin, vmax=vmax)
         
         # OTHERWISE PLOT A GRID
@@ -282,7 +295,7 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
                             (lat[0] + grid_size/2) : lat[1] : grid_size]
             ll = zip(lons, lats)
             
-            aod_grid = griddata(ll, aod_diff, tuple(grid), method='linear')
+            data_grid = griddata(ll, data, tuple(grid), method='linear')
             
             # Mask grid data where there are no nearby points. Firstly create kd-tree
             THRESHOLD = grid_size   # Maximum distance to look for nearby points
@@ -290,16 +303,16 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
             xi = _ndim_coords_from_arrays(tuple(grid))
             dists = tree.query(xi)[0]
             # Copy original result but mask missing values with NaNs
-            aod_grid[dists > THRESHOLD] = np.nan
+            data_grid[dists > THRESHOLD] = np.nan
             
             # Shift colour map to have a midpoint of zero
-            cmap = shiftedColorMap(match_frame_cmap, aod_grid, vmin, vmax)
+            cmap = shiftedColorMap(match_frame_cmap, data_grid, vmin, vmax)
             
             if plot_type == 'pcolormesh':
-                plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=cmap,
+                plt.pcolormesh(grid[0], grid[1], data_grid, cmap=cmap,
                                vmin=vmin, vmax=vmax)
             elif plot_type == 'contourf':
-                plt.contourf(grid[0], grid[1], aod_grid, cmap=cmap, vmin=vmin, vmax=vmax)
+                plt.contourf(grid[0], grid[1], data_grid, cmap=cmap, vmin=vmin, vmax=vmax)
         
     
     ax.coastlines()
@@ -377,16 +390,8 @@ def scatter_plot(df, stats=True, show=True, error=True, hm_threshold=500, **kwar
     # Title, axes, and legend 
     plt.title('Collocated AOD comparison on {0}'.format(df.date.date()))
     plt.legend(loc=4)
-    if df.forecast_times[0] != None:
-        plt.xlabel('{} (forecast lead time: {} hours)'\
-                   .format(name[df.data_sets[0]], int(df.forecast_times[0])))
-    else:
-        plt.xlabel(name[df.data_sets[0]])
-    if df.forecast_times[1] != None:
-        plt.ylabel('{} (forecast lead time: {} hours)'\
-                   .format(name[df.data_sets[1]], int(df.forecast_times[1])))
-    else:
-        plt.ylabel(name[df.data_sets[1]])
+    plt.xlabel(df.names[0])
+    plt.ylabel(df.names[1])
     
     # Stats
     if stats == True:

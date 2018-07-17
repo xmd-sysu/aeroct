@@ -3,11 +3,11 @@ Created on Jul 10, 2018
 
 @author: savis
 '''
-from __future__ import division
+from __future__ import division, print_function
 import os
 import re
 import glob
-from datetime import datetime
+from datetime import datetime, timedelta
 import numpy as np
 from urllib2 import urlopen, Request, URLError
 from contextlib import closing
@@ -18,6 +18,30 @@ try:
     h4err = None
 except ImportError as h4err:
     pass
+
+
+def download_hdf_range(initial_date, days, dl_dir, satellite='Both'):
+    '''
+    Download HDF files for a range of dates beginning at initial_date. The days argument
+    is a list for which each element gives the number of days after initial date for each
+    day of downloaded files.
+    
+    Parameters:
+    initial_date : str
+        The date corresponding to days=0. Format is 'YYYYMMDD'.
+    days : integer array
+        The days after initial_date to return datetime objects.
+    dl_dir : str
+        The directory in which the HDF files will be saved when downloaded.
+    satellite : {'Both', 'Terra, 'Aqua'}, optional (Default: 'Both')
+        Which satellite's data to load.
+    '''
+    initial_date = datetime.strptime(initial_date, '%Y%m%d')
+    dt_list = [initial_date + timedelta(days=int(d)) for d in days]
+    
+    for date in dt_list:
+        print('Downloading for: ', date)
+        download_hdf_day(date, dl_dir, satellite)
 
 
 def download_hdf_day(date, dl_dir, satellite='Both'):
@@ -36,8 +60,9 @@ def download_hdf_day(date, dl_dir, satellite='Both'):
         sat_codes = ['MYD04_L2']
     
     # Convert date format from yyyymmdd to yyyy/jjj for use in the url
-    date_dt = datetime.strptime(date, '%Y%m%d')
-    date_yj = date_dt.strftime('%Y/%j')
+    if type(date) is str:
+        date = datetime.strptime(date, '%Y%m%d')
+    date_yj = date.strftime('%Y/%j')
     
     num_downloaded = 0
     
@@ -54,6 +79,7 @@ def download_hdf_day(date, dl_dir, satellite='Both'):
         
         # Download hdf files
         for filename in filenames:
+            print('.', end='')
             if not os.path.exists(dl_dir + filename):
                 num_downloaded += 1
                 file_url = dir_url + filename
@@ -64,15 +90,16 @@ def download_hdf_day(date, dl_dir, satellite='Both'):
                             copyfileobj(file_r, write)
                 except URLError, e:
                     print(e.reason)
+        print()
         
     if num_downloaded > 0:
-        print('Download complete - {} files downloaded to: {}'.format(num_downloaded,
+        print('Download complete - {0} files downloaded to: {1}'.format(str(num_downloaded),
                                                                       dl_dir))
     else:
-        print('Files already exist in {}'.format(dl_dir))
+        print('Files already exist in {0}'.format(dl_dir))
 
 
-def load_data_day(date, dl_dir, satellite='Both', download=True, keep_files=False):
+def load_data_day(date, dl_dir, satellite='Both', download=True, keep_files=True):
     '''
     This function can be used to download MODIS data for a day. A dictionary is returned
     containing 1D arrays with the following fields:
@@ -117,7 +144,7 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, keep_files=Fals
     files = glob.glob('{0}*{1}*{2}.*.hdf'.format(dl_dir, sat_code, date_yj))
     
     # Get the fields from the files and concatenate them in lists
-    lon, lat, time, arsl_type, aod, stlt_idny = [], [], [], [], [], []
+    lon, lat, time, asl_type, aod, sat_idny = [], [], [], [], [], []
     ae_land, ssa_land, fm_frc_ocean, ae_ocean = [], [], [], []
     fieldnames = ['Longitude', 'Latitude', 'Scan_Start_Time', 'Aerosol_Type_Land', 
                   'AOD_550_Dark_Target_Deep_Blue_Combined',
@@ -141,30 +168,61 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, keep_files=Fals
             sat_id = 783
         elif 'MYD04_L2' in f:
             sat_id = 784
-        
         # Include only the data with the highest quality flag
         highest_qf = (scaled['AOD_550_Dark_Target_Deep_Blue_Combined_QA_Flag'] == 3)
+        
         lon.extend(scaled['Longitude'][highest_qf])
         lat.extend(scaled['Latitude'][highest_qf])
         time.extend(time_hours[highest_qf])
         aod.extend(scaled['AOD_550_Dark_Target_Deep_Blue_Combined'][highest_qf])
-        stlt_idny.extend(np.full_like(time_hours[highest_qf], sat_id))
-        arsl_type.extend(scaled['Aerosol_Type_Land'][highest_qf])
+        sat_idny.extend(np.full_like(time_hours[highest_qf], sat_id))
+        asl_type.extend(scaled['Aerosol_Type_Land'][highest_qf])
         ae_land.extend(scaled['Deep_Blue_Angstrom_Exponent_Land'][highest_qf])
-        ssa_land.extend(scaled['Deep_Blue_Spectral_Single_Scattering_Albedo_Land'][highest_qf])
+        ssa_land.extend(scaled['Deep_Blue_Spectral_Single_Scattering_Albedo_Land'][1, highest_qf])
         fm_frc_ocean.extend(scaled['Optical_Depth_Ratio_Small_Ocean_0.55micron'][highest_qf])
         ae_ocean.extend(scaled['Angstrom_Exponent_1_Ocean'][highest_qf])
     
-    fields_dict = {'LNGD' : np.array(lon),
-                   'LTTD' : np.array(lat),
-                   'TIME' : np.array(time),
-                   'AOD_NM550' : np.array(aod),
-                   'STLT_IDNY' : np.array(stlt_idny, dtype=int),
-                   'ARSL_TYPE' : np.array(arsl_type),
-                   'AE_LAND' : ae_land,
-                   'SSA_LAND' : ssa_land,
-                   'FM_FRC_OCEAN' : fm_frc_ocean,
-                   'AE_Ocean' : ae_ocean}
+#     # Put all the fields into a dictionary
+#     fields_arr = {'AOD_NM550' : np.array(aod),
+#                   'LNGD' : np.array(lon),
+#                   'LTTD' : np.array(lat),
+#                   'TIME' : np.array(time),
+#                   'STLT_IDNY' : np.array(sat_idny, dtype=int),
+#                   'ARSL_TYPE' : np.array(asl_type),
+#                   'AE_LAND' : np.array(ae_land),
+#                   'SSA_LAND' : np.array(ssa_land),
+#                   'FM_FRC_OCEAN' : np.array(fm_frc_ocean),
+#                   'AE_OCEAN' : np.array(ae_ocean)}
+    
+    lon = np.array(lon)
+    lat = np.array(lat)
+    time = np.array(time)
+    aod = np.array(aod)
+    sat_idny = np.array(sat_idny, dtype=int)
+    asl_type = np.array(asl_type)
+    ae_land = np.array(ae_land)
+    ssa_land = np.array(ssa_land)
+    fmf_ocean = np.array(fm_frc_ocean)
+    ae_ocean = np.array(ae_ocean)
+     
+    # Put all of the fields into one structured array
+    fields_type = np.dtype([('AOD_NM550', aod.dtype), ('LNGD', lon.dtype),
+                            ('LTTD', lat.dtype), ('TIME', time.dtype),
+                            ('STLT_IDNY', sat_idny.dtype), ('ARSL_TYPE', asl_type.dtype),
+                            ('AE_LAND', ae_land.dtype), ('SSA_LAND', ssa_land.dtype),
+                            ('FM_FRC_OCEAN', fmf_ocean.dtype), ('AE_OCEAN', ae_ocean.dtype)])
+     
+    fields_arr = np.empty(len(lon), dtype = fields_type)
+    fields_arr['AOD_NM550'] = np.array(aod)
+    fields_arr['LNGD'] = np.array(lon)
+    fields_arr['LTTD'] = np.array(lat)
+    fields_arr['TIME'] = np.array(time)
+    fields_arr['STLT_IDNY'] = np.array(sat_idny)
+    fields_arr['ARSL_TYPE'] = np.array(asl_type)
+    fields_arr['AE_LAND'] = np.array(ae_land)
+    fields_arr['SSA_LAND'] = np.array(ssa_land)
+    fields_arr['FM_FRC_OCEAN'] = np.array(fm_frc_ocean)
+    fields_arr['AE_OCEAN'] = np.array(ae_ocean)
     
     # Remove files?
     if keep_files == False:
@@ -173,7 +231,7 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, keep_files=Fals
         if not os.listdir(dl_dir):
             os.rmdir(dl_dir)
     
-    return fields_dict
+    return fields_arr
 
 
 class h4Parse(object):
@@ -299,5 +357,5 @@ class h4Parse(object):
 
 
 if __name__ == '__main__':
-#     load_data_day('20180112', '/scratch/savis/aeroct/downloads/MODIS_hdf/', download=True, keep_files=False)
-    pass
+#     download_hdf_range('20180602', np.arange(45, dtype=int), '/scratch/savis/aeroct/downloads/MODIS_hdf/', satellite='Both')
+    load_data_day('20180602', '/scratch/savis/aeroct/downloads/MODIS_hdf/')

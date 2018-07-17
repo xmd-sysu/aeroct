@@ -107,16 +107,20 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
     a_aod_avg = np.zeros((times.size, site_lats.size))
     a_aod_std = np.zeros((times.size, site_lats.size))
     a_aod_num = np.zeros((times.size, site_lats.size))
+    # To get average difference in time for each site
+    a_time_avg = np.zeros((times.size, site_lats.size))
     
     for i_t, t in enumerate(times):
         a_lats_t = df_a.latitudes[a_time == t]
         # from_site is a matrix of booleans, the 1st index: site, 2nd: data point
         from_site = (a_lats_t == site_lats.repeat(len(a_lats_t), axis=1))
         site_aod = np.ma.masked_where(~from_site, df_a.aod[0][a_time == t] * from_site)
+        site_times = np.ma.masked_where(~from_site, df_a.times[a_time == t] * from_site)
         
         a_aod_avg[i_t] = np.mean(site_aod, axis=1)
         a_aod_std[i_t] = np.std(site_aod, axis=1)
         a_aod_num[i_t] = np.sum(from_site, axis=1)
+        a_time_avg[i_t] = np.mean(site_times, axis=1)
         
         # Set the standard deviation of the sites with just one measurement to be equal
         # to the average of the standard deviations with more than one measurement
@@ -136,6 +140,7 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
     a_aod_avg = a_aod_avg[:, has_neighbour]
     a_aod_std = a_aod_std[:, has_neighbour]
     a_aod_num = a_aod_num[:, has_neighbour]
+    a_time_avg = a_time_avg[:, has_neighbour]
     lons = lons[has_neighbour]
     lats = lats[has_neighbour]
     a_ll = a_ll[has_neighbour]
@@ -144,10 +149,12 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
     s_aod_avg = np.zeros_like(a_aod_avg)
     s_aod_std = np.zeros_like(a_aod_std)
     s_aod_num = np.zeros_like(a_aod_num)
+    s_time_avg = np.zeros_like(a_time_avg)
     
     for i_t, t in enumerate(times):
         # Add nan to prevent out of array references from getnn()
         s_aod_t = np.append(df_s.aod[0][s_time == t], np.nan)
+        s_real_times_t = np.append(df_s.times[s_time == t], np.nan)
         s_ll_t = s_ll[s_time == t]
         
         # For each site find the indices of the nearest 10 satellite points within
@@ -162,6 +169,7 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
             s_aod_avg[i_t] = np.nanmean(s_aod_t[s_nn_idx], axis=1)
             s_aod_std[i_t] = np.nanstd(s_aod_t[s_nn_idx], axis=1)
             s_aod_num[i_t] = np.sum(np.isfinite(dist), axis=1)
+            s_time_avg[i_t]= np.nanmean(s_real_times_t[s_nn_idx], axis=1)
     
     # REARANGE THE OUTPUT TO BE IN THE REQUIRED FORMAT
     # Reshape the longitudes, latitudes, and times to be the shape of the grid
@@ -173,12 +181,13 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
     avg = np.array([s_aod_avg.ravel(), a_aod_avg.ravel()])
     std = np.array([s_aod_std.ravel(), a_aod_std.ravel()])
     num = np.array([s_aod_num.ravel(), a_aod_num.ravel()])
+    time_diff = np.array(a_time_avg - s_time_avg).ravel()
     times = times.ravel()
     lons, lats = lons.ravel(), lats.ravel()
     
     # Return only elements for which there is both satellite and AERONET data
     r = (num[0] > 0) & (num[1] > 0)
-    return [avg[:, r], std[:, r], num[:, r], lons[r], lats[r], times[r]]
+    return [avg[:, r], std[:, r], num[:, r], time_diff[r], lons[r], lats[r], times[r]]
 
 
 def model_anet_match(df_m, df_a, match_time, match_rad):
@@ -224,16 +233,20 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
     a_aod_avg = np.zeros((times.size, site_lats.size))
     a_aod_std = np.zeros((times.size, site_lats.size))
     a_aod_num = np.zeros((times.size, site_lats.size))
+    # To get average difference in time for each site
+    a_time_avg = np.zeros((times.size, site_lats.size))
     
     for i_t, t in enumerate(times):
         a_lats_t = df_a.latitudes[a_time == t]
         # from_site is a matrix of booleans, the 1st index: site, 2nd: data point
         from_site = (a_lats_t == site_lats.repeat(len(a_lats_t), axis=1))
         site_aod = np.ma.masked_where(~from_site, df_a.aod[1][a_time == t] * from_site)
+        site_times = np.ma.masked_where(~from_site, df_a.times[a_time == t] * from_site)
         
         a_aod_avg[i_t] = np.mean(site_aod, axis=1)
         a_aod_std[i_t] = np.std(site_aod, axis=1)
         a_aod_num[i_t] = np.sum(from_site, axis=1)
+        a_time_avg[i_t] = np.mean(site_times, axis=1)
         
         # Set the standard deviation of the sites with just one measurement to be equal
         # to the average of the standard deviations with more than one measurement
@@ -263,7 +276,7 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
     m_lon_idx = m_lon_idx[positive & below_max]
     m_lat_idx = m_lat_idx[positive & below_max]
     
-    # Get the latitudes, longitudes, and aod data
+    # Get the latitudes, longitudes, aod data, and real times
     m_lons = df_m.longitudes[m_lon_idx]
     m_lats = df_m.latitudes[m_lat_idx]
     m_ll = zip(m_lons, m_lats)
@@ -273,6 +286,7 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
     m_aod_avg = np.zeros_like(a_aod_avg)
     m_aod_std = np.zeros_like(a_aod_std)
     m_aod_num = np.zeros_like(a_aod_num)
+    m_real_times = np.zeros_like(a_aod_avg)
     
     for i_t, t in enumerate(times):
         # Add nan to prevent out of array references from getnn()
@@ -290,6 +304,7 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
             m_aod_avg[i_t] = np.nanmean(m_aod_t[m_nn_idx], axis=1)
             m_aod_std[i_t] = np.nanstd(m_aod_t[m_nn_idx], axis=1)
             m_aod_num[i_t] = np.sum(np.isfinite(dist), axis=1)
+            m_real_times[i_t] = np.full_like(m_aod_avg[i_t], df_m.times[m_time==t])
     
     # REARANGE THE OUTPUT TO BE IN THE REQUIRED FORMAT
     # Reshape the longitudes, latitudes, and times to be the shape of the grid
@@ -301,12 +316,13 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
     avg = np.array([m_aod_avg.ravel(), a_aod_avg.ravel()])
     std = np.array([m_aod_std.ravel(), a_aod_std.ravel()])
     num = np.array([m_aod_num.ravel(), a_aod_num.ravel()])
+    time_diff = np.array(a_time_avg - m_real_times).ravel()
     times = times.ravel()
     lons, lats = lons.ravel(), lats.ravel()
     
     # Return only elements for which there is both satellite and AERONET data
     r = (num[0] > 0) & (num[1] > 0)
-    return [avg[:, r], std[:, r], num[:, r], lons[r], lats[r], times[r]]
+    return [avg[:, r], std[:, r], num[:, r], time_diff[r], lons[r], lats[r], times[r]]
 
 
 def model_sat_match(df_m, df_s, match_time, match_dist):
@@ -331,12 +347,12 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
         raise ValueError('Both data frames must have dust AOD data.')
     
     # Include only dust AOD data
-    s_aod, s_lons, s_lats, s_times = df_s.get_data(aod_type='dust', dust_filter_fields=['NONE'])
+    s_aod, s_lons, s_lats, s_real_times = df_s.get_data(aod_type='dust')#, dust_filter_fields=['NONE'])
     
     # Bin the time
     t_mult = 60 / match_time
     m_times = np.rint(df_m.times * t_mult) / t_mult
-    s_times = np.rint(s_times * t_mult) / t_mult
+    s_times = np.rint(s_real_times * t_mult) / t_mult
     
     # Get the list of times included in both sets of data
     times = []
@@ -345,29 +361,31 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
             times.append(t)
     times = np.array(times)
     
-    
     # Firstly bin the data into a grid of latitude and longitude offset from the dateline
     s_lons = np.rint((s_lons - match_dist/2) / match_dist) * match_dist + match_dist/2
     s_lats = np.rint(s_lats / match_dist) * match_dist
     s_ll = np.array([s_lons, s_lats])
     m_lons = np.rint((df_m.longitudes - match_dist/2) / match_dist) * match_dist + match_dist/2
-    m_lons = np.sort(m_lons)
     m_lats = np.rint(df_m.latitudes / match_dist) * match_dist
+    m_lons = np.sort(m_lons) # Ensure the longitudes go from -180 to 180
      
     lons, lats, times_arr = [], [], []
     m_aod_avg, m_aod_std, m_aod_num = [], [], []
     s_aod_avg, s_aod_std, s_aod_num = [], [], []
-     
+    time_diff = []
+    
     for time in times:
         s_ll_t = s_ll[:, s_times==time]
         s_aod_t = s_aod[s_times==time]
         m_aod_t = df_m.aod[1][m_times==time].ravel()
+        s_real_times_t = s_real_times[s_times==time]
          
         # FIND THE MEAN AND STANDARD DEVIATION OF THE SATELLITE DATA IN EACH GRID CELL
         # Sort the latitudes and longitudes to bring duplicate locations together
         sort_idx = np.lexsort(s_ll_t)
         sorted_ll = s_ll_t[:, sort_idx]
         sorted_aod = s_aod_t[sort_idx]
+        sorted_times = s_real_times_t[sort_idx]
          
         # Obtain a mask to indicate where the new locations begin
         uniq_mask = np.append(True, np.any(np.diff(sorted_ll, axis=1), axis=0))
@@ -380,6 +398,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
         s_aod_std_t = np.sqrt(np.abs(div0(np.bincount(ID, sorted_aod**2),
                                           np.bincount(ID)) - s_aod_avg_t**2))
         s_aod_num_t = np.bincount(ID)
+        s_time_avg_t = div0(np.bincount(ID, sorted_times), np.bincount(ID))
          
         lons_t = sorted_ll[0, uniq_mask]
         lats_t = sorted_ll[1, uniq_mask]
@@ -399,7 +418,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
                                           np.bincount(ll_ID)) - m_aod_avg_t**2))
              
         m_aod_num_t = np.bincount(ll_ID)
-         
+        
         # Longitudes and latitudes of each grid cell
         m_lon_uniq = m_lons[lon_uniq_mask]
         m_lat_uniq = m_lats[lat_uniq_mask]
@@ -435,16 +454,18 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
         m_aod_avg.extend(m_aod_avg_t)
         m_aod_std.extend(m_aod_std_t)
         m_aod_num.extend(m_aod_num_t)
-     
+        time_diff.extend(df_m.times[m_times==time] - s_time_avg_t)
+    
     lons, lats, times_arr = np.array(lons), np.array(lats), np.array(times_arr)
     aod_avg = np.array([m_aod_avg, s_aod_avg])
     aod_std = np.array([m_aod_std, s_aod_std])
-    aod_num = np.array([m_aod_num, s_aod_std])
+    aod_num = np.array([m_aod_num, s_aod_num])
+    time_diff = np.array(time_diff)
      
     # Return only elements for which there is both model and satellite data
     r = (aod_num[0] > 0) & (aod_num[1] > 0)
-    return [aod_avg[:, r], aod_std[:, r], aod_num[:, r], lons[r], lats[r], times_arr[r]]
-
+    return [aod_avg[:, r], aod_std[:, r], aod_num[:, r], time_diff[r],
+            lons[r], lats[r], times_arr[r]]
 
 
 def collocate(df1, df2, match_time=30, match_rad=25):
@@ -486,51 +507,57 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         elif df1.data_set == 'aeronet':
             params = sat_anet_match(df2, df1, match_time, match_rad)
             param012 = [params[i][::-1] for i in range(3)]
-            params = param012 + params[3:]
+            param3 = -1 * params[3]
+            param012.append(param3)
+            param012.extend(params[4:])
         
-        [aod, std, num, lon, lat, time] = params
+        [aod, std, num, time_diff, lon, lat, time] = param012
         
-        return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time, match_rad,
-                          df1.wavelength, forecasts, data_sets, aod_type=0)
+        return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
+                          match_rad, df1.wavelength, forecasts, data_sets, aod_type=0)
     
     # Model-AERONET match-up
     elif (df1.cube != None) & (df2.data_set == 'aeronet'):
         params = model_anet_match(df1, df2, match_time, match_rad)
         
-        [aod, std, num, lon, lat, time] = params
+        [aod, std, num, time_diff, lon, lat, time] = params
         
-        return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time, match_rad,
+        return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time, match_rad,
                           df1.wavelength, forecasts, data_sets, aod_type=1)
     
     # Same as above but the other way around
     elif (df1.data_set == 'aeronet') & (df2.cube != None):
         params = model_anet_match(df2, df1, match_time, match_rad)
         param012 = [params[i][::-1] for i in range(3)]
-        params = param012 + params[3:]
+        param3 = -1 * params[3]
+        param012.append(param3)
+        param012.extend(params[4:])
         
-        [aod, std, num, lon, lat, time] = params
+        [aod, std, num, time_diff, lon, lat, time] = param012
         
-        return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time, match_rad,
+        return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time, match_rad,
                           df1.wavelength, forecasts, data_sets, aod_type=1)
     
     # Model-Satellite match-up
     elif (df1.cube != None) & (df2.cube is None):
         params = model_sat_match(df1, df2, match_time, match_rad)
         
-        [aod, std, num, lon, lat, time] = params
+        [aod, std, num, time_diff, lon, lat, time] = params
         
-        return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time,
+        return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
                           2 * match_rad, df1.wavelength, forecasts, data_sets, aod_type=1)
     
     # Same as above but the other way around
     elif (df1.cube is None) & (df2.cube != None):
         params = model_sat_match(df2, df1, match_time, match_rad)
         param012 = [params[i][::-1] for i in range(3)]
-        params = param012 + params[3:]
+        param3 = -1 * params[3]
+        param012.append(param3)
+        param012.extend(params[4:])
         
-        [aod, std, num, lon, lat, time] = params
+        [aod, std, num, time_diff, lon, lat, time] = param012
         
-        return MatchFrame(aod, std, num, lon, lat, time, df1.date, match_time,
+        return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
                           2 * match_rad, df1.wavelength, forecasts, data_sets, aod_type=1)
     
     # Model-Model match-up
@@ -564,7 +591,7 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         cube = df1.cube[times1_idx]
         cube.data = cube_data   # Cube with data of df2 - df1
         
-        return MatchFrame(aod, std, num, lon_f, lat_f, times, df1.date, None, None,
+        return MatchFrame(aod, std, num, time_diff, lon_f, lat_f, times, df1.date, None, None,
                           df1.wavelength, forecasts, data_sets, aod_type=1, cube=cube)
     
     else:

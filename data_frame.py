@@ -23,9 +23,9 @@ SCRATCH_PATH = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 # How to output the names of the data sets
 name = {'aeronet': 'AERONET',
         'modis': 'MODIS',
-        'modis_t' : 'MODIS_Terra',
-        'modis_a' : 'MODIS_Aqua',
-        'metum': 'Unified_Model'}
+        'modis_t' : 'MODIS Terra',
+        'modis_a' : 'MODIS Aqua',
+        'metum': 'Unified Model'}
 
 
 class DataFrame():
@@ -52,6 +52,9 @@ class DataFrame():
         self.wavelength = wavelength                # [nm]
         self.data_set   = data_set                  # The name of the data set
         self.forecast_time = kw.setdefault('forecast_time', None)  # [hours]
+        self.name = name[data_set]
+        if self.forecast_time is not None:
+            self.name += ' (Lead time: {} hours)'.format(int(self.forecast_time))
         
         # Dictionary containing lists of indices for the total AOD data which satisfies
         # various dust filter conditions. Only currently used for MODIS data. Eg:
@@ -127,6 +130,7 @@ class DataFrame():
             lat = self.latitudes
             times = self.times
         
+        # Dust AOD selection
         elif get_dust:
             if (self.aod[1] is None) & (self.dust_filters is None):
                 raise ValueError('The data frame does not include dust AOD data.')
@@ -148,16 +152,24 @@ class DataFrame():
                         if np.all(self.dust_filters['AE_LAND']):
                             dust_filter_fields = ['ARSL_TYPE_LAND']
                         else:
-                            dust_filter_fields = ['AE_LAND', 'SSA_LAND',
-                                                  'FM_FRC_OCEAN', 'AE_OCEAN']
-                        
-                    dust_filters = np.array([self.dust_filters[f]
-                                             for f in dust_filter_fields])
-                    is_dust = np.prod(dust_filters, axis=0, dtype=np.bool)
-                    aod = self.aod[0][is_dust]
-                    lon = self.longitudes[is_dust]
-                    lat = self.latitudes[is_dust]
-                    times = self.times[is_dust]
+                            dust_filter_fields = [['AE_LAND', 'SSA_LAND'],
+                                                  ['FM_FRC_OCEAN', 'AE_OCEAN','REGION_OCEAN']]
+                    
+                    # Perform AND over the filters in the second index and
+                    # OR over the first index
+                    dust_filter = []
+                    for f in dust_filter_fields:
+                        if isinstance(f, list):
+                            dust_filter.append(np.all([self.dust_filters[f2]
+                                                       for f2 in f], axis=0))
+                        else:
+                            dust_filter.append(self.dust_filters[f])
+                    dust_filter = np.any(dust_filter, axis=0)
+                    
+                    aod = self.aod[0][dust_filter]
+                    lon = self.longitudes[dust_filter]
+                    lat = self.latitudes[dust_filter]
+                    times = self.times[dust_filter]
                 
             else:
                 # If a cube is used then get the longitude, latitude and time for every point
@@ -214,12 +226,13 @@ class MatchFrame():
     forecast time (for models) are stored as attributes.
     '''
 
-    def __init__(self, data, data_std, data_num, longitudes, latitudes, times, date,
-                 match_time, match_rad, wavelength=550, forecast_times=(None, None),
+    def __init__(self, data, data_std, data_num, time_diff, longitudes, latitudes, times,
+                 date, match_time, match_rad, wavelength=550, forecast_times=(None, None),
                  data_sets=(None, None), aod_type='total', **kw):
         self.data       = data              # Averaged AOD data (Not flattend if cube != None)
         self.data_std   = data_std          # Averaged AOD data standard deviations
         self.data_num   = data_num          # Number of values that are averaged
+        self.time_diff = time_diff          # The average difference in times (idx1 - idx0) 
         self.longitudes = longitudes        # [degrees]
         self.latitudes  = latitudes         # [degrees]
         self.times      = times             # [hours since 00:00:00 on date]
@@ -232,6 +245,11 @@ class MatchFrame():
         self.data_sets      = data_sets       # A tuple of the names of the data sets
         self.aod_type       = aod_type        # Whether it is coarse mode AOD or total AOD
         self.cube = kw.setdefault('cube', None)    # Contains AOD difference for a model-model match
+        self.names = ['', '']
+        for i in [0,1]:
+            self.names[i] = name[data_sets[i]]
+            if self.forecast_times[i] is not None:
+                self.names[i] += ' (Lead time: {} hours)'.format(int(self.forecast_times[i]))
         
         # Flattened
         self.data_f = np.array([self.data[0].ravel(), self.data[1].ravel()])
@@ -312,7 +330,12 @@ def load(data_set, date, forecast_time=0, src=None,
     if dl_dir[-1] != '/':
         dl_dir = dl_dir + '/'
     
-    ds_name = name[data_set]
+    ds_names = {'aeronet': 'AERONET',
+                'modis': 'MODIS',
+                'modis_t' : 'MODIS_Terra',
+                'modis_a' : 'MODIS_Aqua',
+                'metum': 'Unified_Model'}
+    ds_name = ds_names[data_set]
     
     if data_set == 'aeronet':
         dl_dir = dl_dir + 'AERONET/'
