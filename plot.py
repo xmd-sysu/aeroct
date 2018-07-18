@@ -349,49 +349,70 @@ def scatter_plot(df, stats=True, show=True, error=True, hm_threshold=500, **kwar
         raise ValueError('The data frame is unrecognised. It must be collocated data \
                          from two data sets.')
     
-    fig, ax = plt.subplots()
+    x0, y0 = 0.13, 0.08
+    width, height = 0.7, 0.6
+    width2, height2 = 0.1, 0.1
+    cheight, cpad = 0.03, 0.1
+    y1 = y0 + cheight + cpad
+    
+    fig = plt.figure()
+    ax = fig.add_axes([x0, y1, width, height])
+    cax = fig.add_axes([x0, y0, width, cheight])
+    ax_x = fig.add_axes([x0, y1 + height + 0.01, width, height2], sharex=ax)
+    ax_y = fig.add_axes([x0 + width + 0.01, y1, width2, height], sharey=ax)
+    
+    # Histograms
+    ax_x.hist(df.data[0], bins=50, color='k')
+    ax_y.hist(df.data[1], bins=50, color='k', orientation='horizontal')
     
     # Plot a scatter plot if there are fewer data points than hm_threshold
-    if (df.data_f[0].size <= hm_threshold):
+    if (df.data[0].size <= hm_threshold):
         kwargs.setdefault('c', 'r')
         kwargs.setdefault('marker', 'o')
         kwargs.setdefault('linestyle', 'None')
         
         if error == True:
             kwargs.setdefault('ecolor', 'gray')
-            plt.errorbar(df.data_f[0], df.data_f[1], df.std_f[1], df.std_f[0], **kwargs)
+            ax.errorbar(df.data[0], df.data[1], df.std_f[1], df.std_f[0], **kwargs)
         else:
-            plt.plot(df.data_f[0], df.data_f[1], **kwargs)
+            ax.plot(df.data[0], df.data[1], **kwargs)
     
     # Otherwise plot a heatmap
     else:
-        x_min, x_max = np.min(df.data_f[0]), np.max(df.data_f[0])
-        y_min, y_max = np.min(df.data_f[1]), np.max(df.data_f[1])
+        x_min, x_max = np.min(df.data[0]), np.max(df.data[0])
+        y_min, y_max = np.min(df.data[1]), np.max(df.data[1])
         x_grid = np.linspace(x_min, x_max, 101)
         y_grid = np.linspace(y_min, y_max, 101)
         
         # Find the number of points in each grid cell and mask those with none
-        heatmap_grid = np.histogram2d(df.data_f[0], df.data_f[1], [x_grid, y_grid])[0]
+        heatmap_grid = np.histogram2d(df.data[0], df.data[1], [x_grid, y_grid])[0]
         heatmap_grid = np.ma.masked_where(heatmap_grid==0, heatmap_grid)
         
-        plt.pcolormesh(x_grid, y_grid, heatmap_grid.T, cmap='CMRmap')
-        plt.colorbar(orientation='horizontal')
+        im = ax.pcolormesh(x_grid, y_grid, heatmap_grid.T, cmap='CMRmap')
+        plt.colorbar(im, cax=cax, orientation='horizontal')
     
     ax.autoscale(False)
     
     # Regression line
     x = np.array([0, 10])
     y = df.R_INTERCEPT + x * df.R_SLOPE
-    plt.plot(x, y, 'g:', lw=2, label='Regression')
+    ax.plot(x, y, 'g:', lw=2, label='Regression')
     
     # y = x line
-    plt.plot([0, 10], [0, 10], c='gray', ls='--', lw=2, label='y = x')
+    ax.plot([0, 10], [0, 10], c='gray', ls='--', lw=2, label='y = x')
     
-    # Title, axes, and legend 
-    plt.title('Collocated AOD comparison on {0}'.format(df.date.date()))
-    plt.legend(loc=4)
-    plt.xlabel(df.names[0])
-    plt.ylabel(df.names[1])
+    # Title, axes, and legend
+    title = 'Collocated AOD comparison on {0}'.format(df.date.date())
+    fig.text(0.5, (y1 + height + height2 + 0.03), title, ha='center', fontsize=14)
+    ax.legend(loc=4)
+    ax.set_xlabel('{0} AOD'.format(df.names[0]))
+    ax.set_ylabel('{0} AOD'.format(df.names[1]))
+    ax.loglog()
+    
+    # Ticks
+    ax.tick_params(direction='in', bottom=True, top=True, left=True, right=True)
+    ax_x.tick_params(direction='in', bottom=True, top=True, left=True, right=True, labelbottom=False)
+    ax_y.tick_params(direction='in', bottom=True, top=True, left=True, right=True, labelleft=False)
     
     # Stats
     if stats == True:

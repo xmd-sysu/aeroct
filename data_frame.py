@@ -6,9 +6,10 @@ Created on Jun 22, 2018
 '''
 from __future__ import print_function, division
 import os
-from datetime import timedelta
+from datetime import timedelta, datetime
 import numpy as np
 from scipy import stats
+import pandas as pd
 try:
     import cPickle as pickle
 except ModuleNotFoundError:
@@ -104,16 +105,21 @@ class DataFrame():
         dust_filter_fields : list of str, optional
             This is used if dust AOD is to be retrieved and the data frame does not
             contain dust AOD data at every location (ie. MODIS data). This lists the
-            conditions to decide which AOD values are dominated by dust.
+            conditions to decide which AOD values are dominated by dust. The conditions
+            within a secondary array are combined using AND, while the conditions in the
+            first array are combined with OR. ie. [['a', 'b'], 'c'] represents
+            (filter['a'] AND filter['b]) OR filter['c']. 
             MODIS fields:
             - 'ARSL_TYPE_LAND': If it has been flagged as dust already.
             - 'AE_LAND': angstrom exponent <= 0.6 for land data.
             - 'SSA_LAND': 0.878 < scattering albedo < 0.955 for land data.
             - 'FM_FRC_OCEAN': fine mode fraction <= 0.45 for ocean data.
             - 'AE_OCEAN': angstrom exponent <= 0.6 for ocean data.
+            - 'REGION_OCEAN': Only ocean data within the regions with dust are selected.
             - 'NONE: No filter.
-            By default 'ARSL_TYPE_LAND' is selected if the data has been retrieved from
-            MetDB, otherwise 'AE_LAND', 'SSA_LAND', 'FM_FRC_OCEAN' & 'AE_OCEAN' are used.
+            By default ['ARSL_TYPE_LAND'] is used if the data has been retrieved from
+            MetDB. If downloaded from NASA the following is used:
+            [['AE_LAND', 'SSA_LAND'], ['FM_FRC_OCEAN', 'AE_OCEAN', 'OCEAN_REGION']]
         '''
         get_total = (aod_type=='total') | ((aod_type is None) &
                                            (self.aod[0] is not None))
@@ -183,7 +189,7 @@ class DataFrame():
         return aod, lon, lat, times
     
     
-    def dump(self, filename=None, dir_path=SCRATCH_PATH+'data_frames/'):
+    def dump(self, filename=None, dir_path=SCRATCH_PATH+'data_frames/', filetype='pickle'):
         '''
         Save the data frame as a file in the chosen location. Note that saving and
         loading large data frames can take some time.
@@ -198,6 +204,11 @@ class DataFrame():
         # Make directory if it does not exist
         os.system('mkdir -p {}'.format(dir_path))
         
+        if filetype == 'pickle':
+            file_ext = 'pkl'
+        elif filetype == 'csv':
+            file_ext = 'csv'
+        
         if filename != None:
             pass
         elif type(self.data_set) == str:
@@ -206,14 +217,15 @@ class DataFrame():
             raise ValueError, 'data_set attribute invalid. Cannot create filename'
         
         i = 0
-        while os.path.exists(dir_path + filename + str(i).zfill(2)):
+        while os.path.exists(dir_path + filename + str(i).zfill(2) + file_ext):
             i += 1
+        filepath = dir_path + filename + str(i).zfill(2) + file_ext
         
         # Write file
-        os.system('touch {}'.format(dir_path + filename + str(i).zfill(2)))
-        with open(dir_path + filename + str(i).zfill(2), 'w') as writer:
+        os.system('touch {}'.format(filepath))
+        with open(filepath, 'w') as writer:
             pickle.dump(self, writer, -1)
-        print('Data frame saved successfully to {}'.format(dir_path + filename + str(i).zfill(2)))
+        print('Data frame saved successfully to {}'.format(filepath))
 
 
 
@@ -232,7 +244,7 @@ class MatchFrame():
         self.data       = data              # Averaged AOD data (Not flattend if cube != None)
         self.data_std   = data_std          # Averaged AOD data standard deviations
         self.data_num   = data_num          # Number of values that are averaged
-        self.time_diff = time_diff          # The average difference in times (idx1 - idx0) 
+        self.time_diff  = time_diff         # The average difference in times (idx1 - idx0) 
         self.longitudes = longitudes        # [degrees]
         self.latitudes  = latitudes         # [degrees]
         self.times      = times             # [hours since 00:00:00 on date]
@@ -251,60 +263,82 @@ class MatchFrame():
             if self.forecast_times[i] is not None:
                 self.names[i] += ' (Lead time: {} hours)'.format(int(self.forecast_times[i]))
         
-        # Flattened
-        self.data_f = np.array([self.data[0].ravel(), self.data[1].ravel()])
-        self.std_f = np.array([self.data_std[0].ravel(), self.data_std[1].ravel()])
-        
         # Stats
-        self.RMS = np.sqrt(np.mean((self.data_f[1] - self.data_f[0])**2))   # Root mean square
-        self.BIAS_MEAN = np.mean(self.data_f[1] - self.data_f[0])           # y - x mean
-        self.BIAS_STD = np.std(self.data_f[1] - self.data_f[0])             # standard deviation
+        self.RMS = np.sqrt(np.mean((self.data[1] - self.data[0])**2))   # Root mean square
+        self.BIAS_MEAN = np.mean(self.data[1] - self.data[0])           # y - x mean
+        self.BIAS_STD = np.std(self.data[1] - self.data[0])             # standard deviation
         self.R_SLOPE, self.R_INTERCEPT, self.R = \
-            stats.linregress(self.data_f[0], self.data_f[1])[:3]            # Regression and Pearson's correlation coefficient
+            stats.linregress(self.data[0], self.data[1])[:3]            # Regression and Pearson's correlation coefficient
     
     
     def datetimes(self):
         return [self.date + timedelta(hours=h) for h in self.times]
     
+    def pd_dataframe(self):
+        data_array = np.array([self.times, self.latitudes, self.longitudes,
+                               self.data[0], self.data_std[0], self.data_num[0],
+                               self.data[1], self.data_std[1], self.data_num[1],
+                               self.time_diff]).T
+        headers = ['Time', 'Latitude', 'Longitude',
+                   '{0}: AOD average'.format(self.names[0]),
+                   '{0}: AOD stdev'.format(self.names[0]),
+                   '{0}: Number of points'.format(self.names[0]),
+                   '{0}: AOD average'.format(self.names[1]),
+                   '{0}: AOD stdev'.format(self.names[1]),
+                   '{0}: Number of points'.format(self.names[1]),
+                   'Average time difference']
+        df = pd.DataFrame(data_array, columns=headers)
+        return df
     
-    def dump(self, filename=None, dir_path=SCRATCH_PATH+'data_frames/'):
+    
+    def dump(self, filename=None, dir_path=SCRATCH_PATH+'match_frames/', filetype='pickle'):
         '''
-        Save the data frame as a file in the chosen location. Note that saving and
-        loading large data frames can take some time. The filename is returned.
+        Save the data frame as a file in the chosen location. The filepath is returned.
         
         Parameters:
         filename: str, optional (Default: '{data_sets}_YYYYMMDD_##')
             What to name the saved file.
-        dir_path: str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
+        dir_path: str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
             The path to the directory where the file will be saved.
         '''
         # Make directory if it does not exist
-        os.system('mkdir -p {}'.format(dir_path))
+        os.system('mkdir -p {0}'.format(dir_path))
+        
+        # File extension
+        if filetype == 'pickle':
+            file_ext = '.pkl'
+        elif filetype == 'csv':
+            file_ext = '.csv'
         
         if filename is None:
             
             if type(self.data_sets) == tuple:
-                filename = '{}-{}_{}_'.format(self.data_sets[1], self.data_sets[0],
+                filename = '{0}-{1}_{2}_'.format(self.data_sets[1], self.data_sets[0],
                                               self.date.strftime('%Y%m%d'))
             else:
                 raise ValueError, 'data_sets attribute invalid. Cannot create filename'
         
         i = 0
-        while os.path.exists(dir_path + filename + str(i).zfill(2)):
+        while os.path.exists(dir_path + filename + str(i).zfill(2) + file_ext):
             i += 1
         
-        # Write file
-        os.system('touch {}'.format(dir_path + filename + str(i).zfill(2)))
-        with open(dir_path + filename + str(i).zfill(2), 'w') as writer:
-            pickle.dump(self, writer, -1)
-        print('Data frame saved successfully to {}'.format(dir_path + filename + str(i).zfill(2)))
+        filepath = dir_path + filename + str(i).zfill(2) + file_ext
+        os.system('touch {0}'.format(filepath))
+        # Write pickle file
+        if filetype == 'pickle':
+            with open(filepath, 'w') as writer:
+                pickle.dump(self, writer, -1)
+        elif filetype == 'csv':
+            df = self.pd_dataframe()
+            df.to_csv(filepath)
+        print('Data frame saved successfully to {0}'.format(filepath))
         
-        return filename
+        return filepath
 
 
 
-def load(data_set, date, forecast_time=0, src=None,
-         dl_save=True, dl_dir=SCRATCH_PATH+'downloads/'):
+def load(data_set, date, forecast_time=0, src=None, dl_save=True,
+         dl_again=False, dl_dir=SCRATCH_PATH+'downloads/'):
     '''
     Load a data frame for a given date using data from either AERONET, MODIS, or the
     Unified Model (metum). This will allow it to be matched and compared with other data
@@ -321,11 +355,14 @@ def load(data_set, date, forecast_time=0, src=None,
         The source to retrieve the data from.
         MODIS: None or 'MetDB' for MetDB extraction (Note: fewer dust filters available)
                'NASA' to download from ladsweb.modaps.eosdis.nasa.gov/archive/allData/61/
-    dl_save : bool or str, optional (Default: True)
-        Choose whether to save any downloaded data. If it is 'f' then it will download
-        and save, even if the file already exists.
+    dl_save : bool, optional (Default: True)
+        Choose whether to save any downloaded data.
+    dl_again : bool, optional (Default: False)
+        If it is True then it will download the data again, even if the file already
+        exists.
     dl_dir : str, optional (Default: '/scratch/{USER}/aeroct/downloads/')
-        The directory in which to save downloaded data.
+        The directory in which to save downloaded data. The different data sets will be
+        saved within directories in this location.
     '''
     if dl_dir[-1] != '/':
         dl_dir = dl_dir + '/'
@@ -341,12 +378,12 @@ def load(data_set, date, forecast_time=0, src=None,
         dl_dir = dl_dir + 'AERONET/'
         filepath = '{0}{1}_{2}'.format(dl_dir, ds_name, date)
         
-        if (not os.path.exists(filepath)) | (dl_save == 'f'):
+        if (not os.path.exists(filepath)) | (dl_again == True):
             print('Downloading AERONET data for ' + date +'.')
             aod_string = aeronet.download_data_day(date)
             
             # Save data
-            if (dl_save is True) | (dl_save == 'f'):
+            if (dl_save is True):
                 
                 if not os.path.exists(dl_dir):
                     os.makedirs(dl_dir)
@@ -378,7 +415,7 @@ def load(data_set, date, forecast_time=0, src=None,
         modis_filepath = '{}MODIS_{}'.format(dl_dir_mod, date)
         
         if (not os.path.exists(filepath)) & (not os.path.exists(modis_filepath)) | \
-                                                                    (dl_save == 'f'):
+                                                                    (dl_again == True):
             
             if (src is None) | (src == 'MetDB'):
                 print('Extracting {} data from MetDB for {}.'.format(ds_name, date))
@@ -390,7 +427,7 @@ def load(data_set, date, forecast_time=0, src=None,
                                                satellite=satellite, keep_files=True)
             
             # Save data
-            if (dl_save is True) | (dl_save == 'f'):
+            if (dl_save is True):
                 
                 if not os.path.exists(dl_dir_mod):
                     os.makedirs(dl_dir_mod)
@@ -414,11 +451,7 @@ def load(data_set, date, forecast_time=0, src=None,
     elif data_set == 'metum':
         dl_dir = dl_dir + 'UM/'
         
-        force = False
-        if dl_save == 'f':
-            force = True
-        
-        metum.download_data_day(date, forecast_time, dl_dir, force)
+        metum.download_data_day(date, forecast_time, dl_dir, dl_again)
         print('Loading Unified Model files.')
         aod_cube = metum.load_files(date, forecast_time, dl_dir)
         print('Processing Unified Model data...', end='')
@@ -430,15 +463,15 @@ def load(data_set, date, forecast_time=0, src=None,
         raise ValueError, 'Invalid data set: {}'.format(data_set)
 
 
-def load_from_file(filename, dir_path=SCRATCH_PATH+'data_frames'):
+def load_from_file(filename, dir_path=SCRATCH_PATH+'match_frames'):
     '''
     Load the data frame from a file in the chosen location. Note that saving and
     loading large data frames can take some time.
     
     Parameters:
-    filename: str
+    filename : str
         The name of the saved file.
-    dir_path: str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
+    dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
         The path to the directory from which to load the file.
     '''
     if dir_path[-1] != '/':
@@ -452,3 +485,14 @@ def load_from_file(filename, dir_path=SCRATCH_PATH+'data_frames'):
         data_frame = pickle.load(reader)
     print('Complete')
     return data_frame
+
+
+
+if __name__=='__main__':
+    days = np.arange(47)
+    initial_date = datetime(2018,06,01)
+    dt_list = [initial_date + timedelta(days=int(d)) for d in days]
+    
+    for date in dt_list:
+        print('Downloading for: ', date)
+        load('aeronet', date)

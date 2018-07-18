@@ -325,7 +325,7 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
     return [avg[:, r], std[:, r], num[:, r], time_diff[r], lons[r], lats[r], times[r]]
 
 
-def model_sat_match(df_m, df_s, match_time, match_dist):
+def model_sat_match(df_m, df_s, match_time, match_dist, limits=(-180, 180, -90, 90)):
     '''
     Return the AOD average, standard deviation, number of points, longitude, latitude
     and time for each matched pair. Each matched pair has model data within match_time
@@ -347,7 +347,15 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
         raise ValueError('Both data frames must have dust AOD data.')
     
     # Include only dust AOD data
-    s_aod, s_lons, s_lats, s_real_times = df_s.get_data(aod_type='dust')#, dust_filter_fields=['NONE'])
+    s_aod, s_lons, s_lats, s_real_times = df_s.get_data(aod_type='dust')
+    
+    # Take only data within the given limits
+    lon_restriction = (s_lons > limits[0]) & (s_lons < limits[1])
+    lat_restriction = (s_lats > limits[2]) & (s_lats < limits[3])
+    s_aod = s_aod[lon_restriction & lat_restriction]
+    s_lons = s_lons[lon_restriction & lat_restriction]
+    s_lats = s_lats[lon_restriction & lat_restriction]
+    s_real_times = s_real_times[lon_restriction & lat_restriction]
     
     # Bin the time
     t_mult = 60 / match_time
@@ -367,8 +375,11 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
     s_ll = np.array([s_lons, s_lats])
     m_lons = np.rint((df_m.longitudes - match_dist/2) / match_dist) * match_dist + match_dist/2
     m_lats = np.rint(df_m.latitudes / match_dist) * match_dist
-    m_lons = np.sort(m_lons) # Ensure the longitudes go from -180 to 180
-     
+    # Ensure the longitudes go from -180 to 180 so that lon_uniq_mask works correctly
+    lon_sort_idx = np.argsort(m_lons)
+    m_lons = m_lons[lon_sort_idx]
+    m_aod = df_m.aod[1][:, :, lon_sort_idx]
+    
     lons, lats, times_arr = [], [], []
     m_aod_avg, m_aod_std, m_aod_num = [], [], []
     s_aod_avg, s_aod_std, s_aod_num = [], [], []
@@ -377,7 +388,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist):
     for time in times:
         s_ll_t = s_ll[:, s_times==time]
         s_aod_t = s_aod[s_times==time]
-        m_aod_t = df_m.aod[1][m_times==time].ravel()
+        m_aod_t = m_aod[m_times==time].ravel()
         s_real_times_t = s_real_times[s_times==time]
          
         # FIND THE MEAN AND STANDARD DEVIATION OF THE SATELLITE DATA IN EACH GRID CELL
