@@ -17,25 +17,6 @@ import aeroct
 scratch_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
 
-def datetime_list(initial_date, days):
-    '''
-    Return a list of datetimes (at 00:00:00) beginning at initial_date. The days argument
-    is a list for which each element gives the number of days after initial date for each
-    element of the returned list.
-    Eg. datetime_list(initial_date='20180624', days=[-3,4,7]) will return datetime a list
-    of datetime objects of: [2018-06-21, 2018-06-28, 2018-07-02]
-    
-    Parameters:
-    initial_date : str
-        The date corresponding to days=0. Format is 'YYYYMMDD'.
-    days : integer array
-        The days after initial_date to return datetime objects.
-    '''
-    initial_date = datetime.strptime(initial_date, '%Y%m%d')
-    dt_list = [initial_date + timedelta(days=d) for d in days]
-    return dt_list
-
-
 def period_download_and_match(data_set1, data_set2, dates, data_set3=None,
                               forecast_time=(0, 0, 0), match_time=30, match_rad=25,
                               save=True, dir_path=scratch_path+'data_frames/'):
@@ -97,8 +78,8 @@ def period_download_and_match(data_set1, data_set2, dates, data_set3=None,
             match_df23s.append(match_df23)
             
             if save == True:
-                match_df13.dump(dir_path = dir_path)
-                match_df23.dump(dir_path = dir_path)
+                match_df13.dump(dir_path=dir_path)
+                match_df23.dump(dir_path=dir_path)
     
     if data_set3 == None:    
         return match_df12s
@@ -106,98 +87,10 @@ def period_download_and_match(data_set1, data_set2, dates, data_set3=None,
         return [match_df12s, match_df13s, match_df23s]
 
 
-def concatenate_period(df_list):
-    '''
-    Concatenate a list of data frames over a period of time so that the average may be
-    plotted on a map. A data frame of the input type (DataFrame or MatchFrame) is
-    returned with a date attribute containing the list of dates
-    
-    Parameters:
-    df_list : iterable of DataFrames / MatchFrames
-        The list of data frames over a period. All must have the same wavelength and
-        data-set(s). 
-    '''
-    # Currently only works for MatchFrames
-    if df_list[0].__class__.__name__ == 'MatchFrame':
-        
-        match_time = df_list[0].match_time
-        match_rad = df_list[0].match_radius
-        wavelength = df_list[0].wavelength
-        fc_times = df_list[0].forecast_times
-        data_sets = df_list[0].data_sets
-        aod_type = df_list[0].aod_type
-        
-        dates = []
-        data, data_std, data_num = [], [], []
-        longitudes, latitudes, times = [], [], []
-        
-        for df in df_list:
-            
-            # Check that the wavelengths and data-sets all match
-            if df.wavelength != df_list[0].wavelength:
-                raise ValueError('The list of data frames do not contain data for the same\
-                                  wavelength.')
-            if df.data_sets != df_list[0].data_sets:
-                raise ValueError('The list of data frames do not contain data from the\
-                                  same data-sets.')
-            
-            dates.append(df.date)
-            data.extend(df.data)
-            data_std.extend(df.data)
-            data_num.extend(df.data_num)
-            longitudes.extend(df.longitudes)
-            latitudes.extend(df.latitudes)
-            times.extend(times)
-        
-        data, data_std, data_num = np.array(data), np.array(data_std), np.array(data_num)
-        longitudes, latitudes = np.array(longitudes), np.array(latitudes)
-        times = np.array(times)
-        
-        return aeroct.MatchFrame(data, data_std, data_num, longitudes, latitudes, times,
-                                 dates, match_time, match_rad, wavelength, fc_times,
-                                 data_sets, aod_type)
-
-
-def period_bias_plot(mf_list, show=True, **kw):
-    '''
-    Given a list containing MatchFrames the bias between the two sets of collocated AOD
-    values are calculated. The mean bias for each day is plotted with an error bar
-    containing the standard deviation of the bias.
-    
-    Parameters:
-    mf_list : iterable of MatchFrames
-        May be obtained using the period_download_and_match() function. The bias is
-        the second data set AOD subtract the first.
-    show : bool, optional (Default: True)
-        Choose whether to show the plot. If False the figure is returned by the function.
-    kwargs : optional
-        These kwargs are passed to matplotlib.pyplot.errorbar() to format the plot. If
-        none are supplied then the following are used:
-        fmt='r.', ecolor='gray', capsize=0.
-    '''
-    bias_arrays = np.array([mf.data_f[1] - mf.data_f[0] for mf in mf_list])
-    bias_mean = np.mean(bias_arrays, axis=1)
-    bias_std = np.std(bias_arrays, axis=1)
-    date_list = [mf.date for mf in mf_list]
-    
-    # Plot formatting
-    kw.setdefault('fmt', 'r.')
-    kw.setdefault('ecolor', 'gray')
-    kw.setdefault('capsize', 0)
-    
-    fig = plt.figure()
-    plt.errorbar(date_list, bias_mean, bias_std, **kw)
-    
-    if show == True:
-        plt.show()
-    else:
-        return fig
-
-
 if __name__ == '__main__':
     data_set1 = 'aeronet'
     data_set2 = 'modis'
-    dates = datetime_list('20180620', np.arange(0, 15, 5))
+    dates = aeroct.datetime_list('20180620', np.arange(0, 15, 5))
     match_dfs = period_download_and_match(data_set1, data_set2, dates)
     
     Rs = [match_dfs[i].R for i in range(len(match_dfs))]

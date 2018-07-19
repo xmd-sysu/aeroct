@@ -67,7 +67,7 @@ def getnn(d1, d2, r, k=5):
     return idx, d
 
 
-def sat_anet_match(df_s, df_a, match_time, match_rad):
+def sat_anet_match(df_s, df_a, match_time, match_rad, min_points=2):
     '''
     Return the AOD average, standard deviation, number of points, longitude, latitude
     and time for each matched pair. There is a match if a satellite data point is within
@@ -82,6 +82,9 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
         The time over which data will be matched and averaged in minutes.
     match_rad : int
         The radius for which data will be matched and averaged in degrees.
+    min_points : int, optional (Default: 2)
+        The minimum number of points from both df1 and df2 in a given matched data point
+        that is required to store that data point. 
     '''
     if (df_s.aod[0] is None) | (df_a.aod[0] is None):
         raise ValueError('Both data frames must have total AOD data.')
@@ -185,12 +188,12 @@ def sat_anet_match(df_s, df_a, match_time, match_rad):
     times = times.ravel()
     lons, lats = lons.ravel(), lats.ravel()
     
-    # Return only elements for which there is both satellite and AERONET data
-    r = (num[0] > 0) & (num[1] > 0)
+    # Return only elements for which there is enough of both satellite and AERONET data
+    r = (num[0] >= min_points) & (num[1] >= min_points)
     return [avg[:, r], std[:, r], num[:, r], time_diff[r], lons[r], lats[r], times[r]]
 
 
-def model_anet_match(df_m, df_a, match_time, match_rad):
+def model_anet_match(df_m, df_a, match_time, match_rad, min_points=2):
     '''
     Return the AOD average, standard deviation, number of points, longitude, latitude
     and time for each matched pair. There is a match if a model data point is within
@@ -206,6 +209,9 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
     match_rad : int
         The radius for which data will be matched and averaged in degrees.
         (Only accurate for less than ~2.5)
+    min_points : int, optional (Default: 2)
+        The minimum number of points from both df1 and df2 in a given matched data point
+        that is required to store that data point. 
     '''
     
     if ((df_m.aod[1] is None) & (df_m.dust_filters is None)) | \
@@ -320,12 +326,12 @@ def model_anet_match(df_m, df_a, match_time, match_rad):
     times = times.ravel()
     lons, lats = lons.ravel(), lats.ravel()
     
-    # Return only elements for which there is both satellite and AERONET data
-    r = (num[0] > 0) & (num[1] > 0)
+    # Return only elements for which there is enough of both satellite and AERONET data
+    r = (num[0] >= min_points) & (num[1] >= min_points)
     return [avg[:, r], std[:, r], num[:, r], time_diff[r], lons[r], lats[r], times[r]]
 
 
-def model_sat_match(df_m, df_s, match_time, match_dist, limits=(-180, 180, -90, 90)):
+def model_sat_match(df_m, df_s, match_time, match_dist, min_points=2, limits=(-180, 180, -90, 90)):
     '''
     Return the AOD average, standard deviation, number of points, longitude, latitude
     and time for each matched pair. Each matched pair has model data within match_time
@@ -340,6 +346,9 @@ def model_sat_match(df_m, df_s, match_time, match_dist, limits=(-180, 180, -90, 
         The time over which data will be matched and averaged in minutes.
     match_dist : int
         The size of the grid cells for which data will be matched and averaged in degrees.
+    min_points : int, optional (Default: 2)
+        The minimum number of points from both df1 and df2 in a given matched data point
+        that is required to store that data point. 
     '''
     
     if ((df_m.aod[1] is None) & (df_m.dust_filters is None)) | \
@@ -473,13 +482,13 @@ def model_sat_match(df_m, df_s, match_time, match_dist, limits=(-180, 180, -90, 
     aod_num = np.array([m_aod_num, s_aod_num])
     time_diff = np.array(time_diff)
      
-    # Return only elements for which there is both model and satellite data
-    r = (aod_num[0] > 0) & (aod_num[1] > 0)
+    # Return only elements for which there is enough of both model and satellite data
+    r = (aod_num[0] >= min_points) & (aod_num[1] >= min_points)
     return [aod_avg[:, r], aod_std[:, r], aod_num[:, r], time_diff[r],
             lons[r], lats[r], times_arr[r]]
 
 
-def collocate(df1, df2, match_time=30, match_rad=25):
+def collocate(df1, df2, match_time=30, match_rad=25, min_points=2):
     '''
     This matches up elements in time and space from two data frames with the same date
     and wavelength. The outputs are new data frames containing the averaged AOD data
@@ -495,6 +504,9 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         The time over which data will be matched and averaged in minutes.
     match_rad : int, optional (Default: 25 (km))
         The radius for which data will be matched and averaged in kilometers.
+    min_points : int, optional (Default: 2)
+        The minimum number of points from both df1 and df2 in a given matched data point
+        that is required to store that data point. 
     '''
     
     forecasts = (df1.forecast_time, df2.forecast_time)
@@ -513,10 +525,10 @@ def collocate(df1, df2, match_time=30, match_rad=25):
         
         if df2.data_set == 'aeronet':
             # params  has the form [aod, std, num, lon, lat, time]
-            params = sat_anet_match(df1, df2, match_time, match_rad)
+            params = sat_anet_match(df1, df2, match_time, match_rad, min_points)
             
         elif df1.data_set == 'aeronet':
-            params = sat_anet_match(df2, df1, match_time, match_rad)
+            params = sat_anet_match(df2, df1, match_time, match_rad, min_points)
             param012 = [params[i][::-1] for i in range(3)]
             param3 = -1 * params[3]
             param012.append(param3)
@@ -529,7 +541,7 @@ def collocate(df1, df2, match_time=30, match_rad=25):
     
     # Model-AERONET match-up
     elif (df1.cube != None) & (df2.data_set == 'aeronet'):
-        params = model_anet_match(df1, df2, match_time, match_rad)
+        params = model_anet_match(df1, df2, match_time, match_rad, min_points)
         
         [aod, std, num, time_diff, lon, lat, time] = params
         
@@ -551,7 +563,7 @@ def collocate(df1, df2, match_time=30, match_rad=25):
     
     # Model-Satellite match-up
     elif (df1.cube != None) & (df2.cube is None):
-        params = model_sat_match(df1, df2, match_time, match_rad)
+        params = model_sat_match(df1, df2, match_time, match_rad, min_points)
         
         [aod, std, num, time_diff, lon, lat, time] = params
         
@@ -560,7 +572,7 @@ def collocate(df1, df2, match_time=30, match_rad=25):
     
     # Same as above but the other way around
     elif (df1.cube is None) & (df2.cube != None):
-        params = model_sat_match(df2, df1, match_time, match_rad)
+        params = model_sat_match(df2, df1, match_time, match_rad, min_points)
         param012 = [params[i][::-1] for i in range(3)]
         param3 = -1 * params[3]
         param012.append(param3)

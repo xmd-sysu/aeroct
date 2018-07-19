@@ -12,18 +12,17 @@ TODO: Allow files to be extracted from before 2015-02-03.
 import os
 from datetime import datetime, timedelta
 
-ext_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/downloads/UM/'
+ext_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/downloads/UM/pp/'
 
 
-def extract_from_mass(date, fc_time, out_path):
+def extract_from_mass(dates, fc_time, extract_dir):
     '''
-    Use 'moo select' to retrieve the files from mass
+    Use 'moo select' to retrieve the files from MASS for a list of dates in one year.
     '''
-    hours = [0, 6, 12, 18]                                      # forecast hours
-    year = str(datetime.strptime(date, '%Y%m%d').year)          # query year
-    src_uri = 'moose:/opfc/atm/global/prods/{0}.pp/'.format(year)# source URI
-    extract_dir = out_path                                      # extract path
-    q_um = '{0}aod_um.query'.format(extract_dir)                 # query file path
+    hours = [0, 6, 12, 18]                                        # forecast hours
+    year = str(datetime.strptime(dates[0], '%Y%m%d').year)        # query year
+    src_uri = 'moose:/opfc/atm/global/prods/{0}.pp/'.format(year) # source URI
+    q_um = '{0}aod_um.query'.format(extract_dir)                  # query file path
     
     # Make the extract directory if it does not exist and create a new query file.
     os.system('mkdir -p {0}'.format(extract_dir))
@@ -34,18 +33,20 @@ def extract_from_mass(date, fc_time, out_path):
     # Update moose query file to extract AOD diagnostics at the given forecast hours:
     
     with open(q_um, 'w') as file_writer:
-        for h in hours:
-            hh = str(h).zfill(2)
-            file_writer.write('begin\n')
-            file_writer.write('  stash=2422\n')       # stash code for AOD
-            file_writer.write('  lbft={0}\n'.format(fc_time))     # forecast lead time (hours)
-            file_writer.write('  lbuser_5=3\n')       # pseudo level for wavelengths
-            file_writer.write('  min=[0..29]\n')      # 
-#             file_writer.write('  pp_file="prods_op_gl-up_{0}_{1}*"\n'.format(d, hh)) # update runs
-            file_writer.write('  pp_file="prods_op_gl-mn_{0}_{1}*"\n'.format(date, hh)) # main run
-            file_writer.write('end\n\n')
+        for d in dates:
+            for h in hours:
+                hh = str(h).zfill(2)
+                file_writer.write('begin\n')
+                file_writer.write('  stash=2422\n')       # stash code for AOD
+                file_writer.write('  lbft={0}\n'.format(fc_time))     # forecast lead time (hours)
+                file_writer.write('  lbuser_5=3\n')       # pseudo level for wavelengths
+                file_writer.write('  min=[0..29]\n')      # 
+    #             file_writer.write('  pp_file="prods_op_gl-up_{0}_{1}*"\n'.format(d, hh)) # update runs
+                file_writer.write('  pp_file="prods_op_gl-mn_{0}_{1}*"\n'.format(d, hh)) # main run
+                file_writer.write('end\n\n')
     
-    print('Extracting UM AOD files from MASS for {0} to location {1}'.format(date, extract_dir))
+    print('Extracting {0} day(s) of UM AOD files from {1} to location {2}'\
+          .format(len(dates), dates[0], extract_dir))
     os.system('moo select {0} -f {1} {2}'.format(q_um, src_uri, extract_dir))
 
 
@@ -60,7 +61,7 @@ def download_data_day(date, forecast_time, out_path=None, dl_again=False):
     forecast_time : int
         The forecast lead time.
         Possible choices: 0, 3, 6, 9, 12, 15, 18, 21, 24.
-    out_path : str, optional (Default: /scratch/{USER}/aeroct/downloads/UM/)
+    out_path : str, optional (Default: /scratch/{USER}/aeroct/downloads/UM/pp/)
         The directory in which to save the output files.
     dl_again : bool, optional (Default: False)
         Choose whether to extract the files if they any are detected in the output
@@ -73,18 +74,24 @@ def download_data_day(date, forecast_time, out_path=None, dl_again=False):
         out_path = ext_path
     fc = str(forecast_time).zfill(3)
     
-    # Download the data for date and the day before if it has not been extracted.
-    date0 = (datetime.strptime(date, '%Y%m%d') - timedelta(1)).strftime('%Y%m%d')
-    day0_query = 'ls {0}*{1}*_{2:03d}* 2> /dev/null'.format(out_path, date0, forecast_time+3)
-    day1_query = 'ls {0}*{1}*_{2:03d}* 2> /dev/null'.format(out_path, date, forecast_time+3)
+    # Get the dates of the two files containing data during 'date'
+    days_before = int((forecast_time - 6) / 24)
+    date1 = datetime.strptime(date, '%Y%m%d') - timedelta(days=(days_before + 1))
+    date2 = datetime.strptime(date, '%Y%m%d') - timedelta(days=days_before)
+    date1 = date1.strftime('%Y%m%d')
+    date2 = date2.strftime('%Y%m%d')
+    
+    # Download the data the dates
+    day1_query = 'ls {0}*{1}*_{2:03d}* 2> /dev/null'.format(out_path, date1, forecast_time+3)
+    day2_query = 'ls {0}*{1}*_{2:03d}* 2> /dev/null'.format(out_path, date2, forecast_time+3)
     downloaded_data = False
     
-    if (len(os.popen(day0_query).read()) <= 222) | (dl_again == True):
-        extract_from_mass(date0, fc, out_path)
+    if (len(os.popen(day1_query).read()) <= 222) | (dl_again == True):
+        extract_from_mass([date1], fc, out_path)
         downloaded_data = True
     
-    if (len(os.popen(day1_query).read()) <= 222) | (dl_again == True):
-        extract_from_mass(date, fc, out_path)
+    if (len(os.popen(day2_query).read()) <= 222) | (dl_again == True):
+        extract_from_mass([date2], fc, out_path)
         downloaded_data = True
         
     if downloaded_data:
@@ -93,53 +100,40 @@ def download_data_day(date, forecast_time, out_path=None, dl_again=False):
         print('UM AOD files already extracted.')
 
 
-def download_data_range(date1, date2=None, forecast_time=0, out_path=None, dl_again=False):
+def download_data_range(dates, forecast_time=0, out_path=None):
     '''
     Extract all forecast files within a time frame. If date2 is not provided then all
     files since date1 are extracted.
     
     Parameters:
-    date1 : str
-        The date to begin extracting forecast data. Format: "YYYYMMDD".
-    date2 : str, optional (Default: None)
-        The date to which files whould be extracted. Format: "YYYYMMDD".
-        If None then today's date is used.
+    dates : str list
+        The dates to extract forecast data. Format: "YYYYMMDD".
     forecast_time : int, optional (Default: 0)
         The forecast lead time. Possible choices: 0, 3, 6, 9, 12, 15, 18, 21, 24.
-    out_path : str, optional (Default: /scratch/{USER}/aeroct/downloads/UM/)
+    out_path : str, optional (Default: /scratch/{USER}/aeroct/downloads/UM/pp/)
         The directory in which to save the output files.
-    dl_again : bool, optional (Default: False)
-        Choose whether to extract the files if they any are detected in the output
-        directory.
     '''
     if out_path is None:
         out_path = ext_path
     
-    # Get the dates in a datetime type and then create a list of days
-    try:
-        date1_dt = datetime.strptime(date1, '%Y%m%d')
-    except:
-        print('date1 unable to convert to datetime. \n' +
-              'Ensure the date is in the format: "YYYYMMDD"')
-        return
+    if isinstance(dates[0], datetime):
+        dates = [d.strftime('%Y%m%d') for d in dates]
     
-    if date2 == None:
-        date2_dt = datetime.utcnow()
-    else:
-        try:
-            date2_dt = datetime.strptime(date2, '%Y%m%d')
-        except:
-            print('date2 unable to convert to datetime. \n' +
-                  'Ensure the date is in the format: "YYYYMMDD"')
-            return
-    
-    date_list = [date1_dt + timedelta(days=x) for x in range((date2_dt-date1_dt).days + 1)]
-    print(date_list)
-    
-    for d in date_list:
-        download_data_day(str(d.year) + str(d.month).zfill(2) + str(d.day).zfill(2),
-                          forecast_time, out_path, dl_again)
+    # Split the dates into years and then extract from MASS
+    years = np.array([datetime.strptime(d, '%Y%m%d').year for d in dates])
+    for y in np.unique(years):
+        dates_y = [dates[i] for i in range(len(dates)) if years[i]==y]
+        extract_from_mass(dates_y, forecast_time, out_path)
 
 
 if __name__ == '__main__':
-    download_data_day('20180606', forecast_time=0)
+    
+    import numpy as np
+    days = np.arange(41)
+    initial_date = datetime(year=2018, month=1, day=1)
+    dates = [initial_date + timedelta(days=int(d)) for d in days]
+    
+    download_data_range(dates, forecast_time=24)
+    download_data_range(dates, forecast_time=30)
+    download_data_range(dates, forecast_time=36)
+    download_data_range(dates, forecast_time=42)

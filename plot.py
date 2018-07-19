@@ -15,12 +15,13 @@ TODO: Move the MatchFrame scatter plot function to this module.
 '''
 import sys
 import numpy as np
-from matplotlib import pyplot as plt, cm
+import matplotlib
+from matplotlib import pyplot as plt, cm, animation
 import cartopy.crs as ccrs
 from scipy.interpolate import griddata
 from scipy.interpolate.interpnd import _ndim_coords_from_arrays
 from scipy.spatial import cKDTree
-import matplotlib
+
 sys.path.append('/home/h01/savis/workspace/summer')
 import aeroct
 
@@ -149,7 +150,7 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
     a grid.
     
     Parameters:
-    df : AeroCT DataFrame or MatchFrame
+    df : AeroCT DataFrame / MatchFrame, or list of DataFrames / MatchFrames
     data_type : {None, 'total' or 'dust'} (Default: None)
         This describes which AOD data to plot if the data frame is a DataFrame instance.
         If None is chosen and the data frame only includes a single type of AOD then that
@@ -174,6 +175,13 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
 
     '''
     
+    # Convert a list of 
+    if isinstance(df, list):
+        df = aeroct.concatenate_match_frames(df)
+        date = '{0} to {1}'.format(df.date[0].date(), df.date[-1].date())
+    else:
+        date = df.date.date()
+    
     fig = plt.figure()
     ax = plt.axes(projection=ccrs.PlateCarree())
     
@@ -189,11 +197,11 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
         day_avg_cube = df.cube.collapsed('time', analysis.MEAN)
         
         if df.__class__.__name__ == 'DataFrame':
-            plt.title('Daily AOD for {} from {}'.format(df.date.date(), df.name))
+            plt.title('{0}: AOD mean for {1}'.format(df.name, date))
             cmap = data_frame_cmap
         else:
-            plt.title('Daily AOD difference : {0} - {1} for {2}'\
-                      .format(df.names[1], df.names[0], df.date.date()))
+            plt.title('AOD difference (mean) : {0} - {1} for {2}'\
+                      .format(df.names[1], df.names[0], date))
             cmap = shiftedColorMap(match_frame_cmap, day_avg_cube.data, vmin, vmax)
         
         if plot_type == 'pcolormesh':
@@ -202,7 +210,7 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
             iplt.contourf(day_avg_cube, cmap=data_frame_cmap, vmin=vmin, vmax=vmax)
     
     elif df.__class__.__name__ == 'DataFrame':
-        plt.title('Daily AOD for {} from {}'.format(df.date.date(), df.name))
+        plt.title('{0}: AOD mean for {1}'.format(df.name, date))
         
         # Select the total or dust AOD data which is in the given bounds
         aod, lons, lats = df.get_data(data_type)[:3]
@@ -237,9 +245,6 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
                             (lat[0] + grid_size/2) : lat[1] : grid_size]
             
             ll = zip(lons, lats)
-#             # Bin the time
-#             t_mult = 60 / 90.
-#             s_times = np.rint(df.times[in_bounds] * t_mult) / t_mult
             aod_grid = griddata(ll, aod, tuple(grid), method='linear')
             
             # Mask grid data where there are no nearby points. Firstly create kd-tree
@@ -257,19 +262,21 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
                 plt.contourf(grid[0], grid[1], aod_grid, cmap=data_frame_cmap,
                              vmin=vmin, vmax=vmax)
     
-    elif df.__class__.__name__ == 'MatchFrame':
-        plt.title('Daily AOD difference : {0} - {1} for {2}'\
-                  .format(df.names[1], df.names[0], df.date.date()))
-        
+    elif df.__class__.__name__ == 'MatchFrame':        
         # Find the data within the given longitude and latitude bounds
         in_bounds = (df.longitudes > lon[0]) & (df.longitudes < lon[1]) & \
                     (df.latitudes > lat[0]) & (df.latitudes < lat[1])
         lons = df.longitudes[in_bounds]
         lats = df.latitudes[in_bounds]
+        
         if data_type == 'time diff':
             data = df.time_diff[in_bounds]
+            plt.title('Time difference (mean) : {0} - {1} for {2}'\
+                      .format(df.names[1], df.names[0], date))
         else:
             data = df.data[1, in_bounds] - df.data[0, in_bounds]
+            plt.title('AOD difference (mean) : {0} - {1} for {2}'\
+                      .format(df.names[1], df.names[0], date))
         
         # If AERONET is included plot the sites on a map
         if np.any([df.data_sets[i] == 'aeronet' for i in [0,1]]):
@@ -279,7 +286,6 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
             in_sites = site_lons[:, np.newaxis] == lons
             # Average the AOD at each site and take std
             site_data_avg = np.mean(data * in_sites, axis=1)
-#             aod_site_std = np.sqrt(np.mean(aod_diff**2 * in_sites, axis=1) - aod_site_avg**2)
             
             # Shift colour map to have a midpoint of zero
             cmap = shiftedColorMap(match_frame_cmap, site_data_avg, vmin, vmax)
@@ -348,16 +354,25 @@ def scatter_plot(df, stats=True, show=True, error=True, hm_threshold=500, **kwar
     if (df.__class__.__name__ != 'MatchFrame') | (len(df.data_sets) != 2):
         raise ValueError('The data frame is unrecognised. It must be collocated data \
                          from two data sets.')
+        
+    # Plot a heat map if there are more data points than hm_threshold
+    heatmap = (df.data[0].size > hm_threshold)
     
+    fig = plt.figure()
+    
+    # Axes locations and sizes
     x0, y0 = 0.13, 0.08
     width, height = 0.7, 0.6
     width2, height2 = 0.1, 0.1
-    cheight, cpad = 0.03, 0.1
-    y1 = y0 + cheight + cpad
     
-    fig = plt.figure()
+    if heatmap:
+        cheight, cpad = 0.03, 0.1
+        cax = fig.add_axes([x0, y0, width, cheight])
+        y1 = y0 + cheight + cpad
+    else:
+        y1 = y0
+    
     ax = fig.add_axes([x0, y1, width, height])
-    cax = fig.add_axes([x0, y0, width, cheight])
     ax_x = fig.add_axes([x0, y1 + height + 0.01, width, height2], sharex=ax)
     ax_y = fig.add_axes([x0 + width + 0.01, y1, width2, height], sharey=ax)
     
@@ -366,14 +381,14 @@ def scatter_plot(df, stats=True, show=True, error=True, hm_threshold=500, **kwar
     ax_y.hist(df.data[1], bins=50, color='k', orientation='horizontal')
     
     # Plot a scatter plot if there are fewer data points than hm_threshold
-    if (df.data[0].size <= hm_threshold):
+    if not heatmap:
         kwargs.setdefault('c', 'r')
         kwargs.setdefault('marker', 'o')
         kwargs.setdefault('linestyle', 'None')
         
         if error == True:
             kwargs.setdefault('ecolor', 'gray')
-            ax.errorbar(df.data[0], df.data[1], df.std_f[1], df.std_f[0], **kwargs)
+            ax.errorbar(df.data[0], df.data[1], df.data_std[1], df.data_std[0], **kwargs)
         else:
             ax.plot(df.data[0], df.data[1], **kwargs)
     
@@ -407,7 +422,7 @@ def scatter_plot(df, stats=True, show=True, error=True, hm_threshold=500, **kwar
     ax.legend(loc=4)
     ax.set_xlabel('{0} AOD'.format(df.names[0]))
     ax.set_ylabel('{0} AOD'.format(df.names[1]))
-    ax.loglog()
+#     ax.loglog()
     
     # Ticks
     ax.tick_params(direction='in', bottom=True, top=True, left=True, right=True)
@@ -432,5 +447,58 @@ def scatter_plot(df, stats=True, show=True, error=True, hm_threshold=500, **kwar
     if show == True:
         plt.show()
         return
+    else:
+        return fig
+
+
+def animate_cube(df):
+    
+    fig, ax = plt.subplots()
+    im = iplt.pcolormesh(df.cube[0])
+    plt.colorbar(im)
+    
+    def animate(i):
+        C = df.cube.data[i]
+        C = C[:-1, :-1] # Necessary for shading='flat'
+        im.set_array(C.ravel())
+        return im,
+    
+    ani = animation.FuncAnimation(fig, animate, interval=1000, blit=True, save_count=len(df.cube.data)-1)
+    
+    plt.show()
+
+
+def period_bias_plot(mf_list, show=True, **kw):
+    '''
+    Given a list containing MatchFrames the bias between the two sets of collocated AOD
+    values are calculated. The mean bias for each day is plotted with an error bar
+    containing the standard deviation of the bias.
+    
+    Parameters:
+    mf_list : iterable of MatchFrames
+        May be obtained using the period_download_and_match() function. The bias is
+        the second data set AOD subtract the first.
+    show : bool, optional (Default: True)
+        Choose whether to show the plot. If False the figure is returned by the function.
+    kwargs : optional
+        These kwargs are passed to matplotlib.pyplot.errorbar() to format the plot. If
+        none are supplied then the following are used:
+        fmt='r.', ecolor='gray', capsize=0.
+    '''
+    bias_arrays = np.array([mf.data_f[1] - mf.data_f[0] for mf in mf_list])
+    bias_mean = np.mean(bias_arrays, axis=1)
+    bias_std = np.std(bias_arrays, axis=1)
+    date_list = [mf.date for mf in mf_list]
+    
+    # Plot formatting
+    kw.setdefault('fmt', 'r.')
+    kw.setdefault('ecolor', 'gray')
+    kw.setdefault('capsize', 0)
+    
+    fig = plt.figure()
+    plt.errorbar(date_list, bias_mean, bias_std, **kw)
+    
+    if show == True:
+        plt.show()
     else:
         return fig

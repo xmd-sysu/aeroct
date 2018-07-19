@@ -20,7 +20,7 @@ except ImportError as h4err:
     pass
 
 
-def download_hdf_range(initial_date, days, dl_dir, satellite='Both'):
+def download_hdf_range(initial_date, days, dl_dir, satellite='Both', dl_again=False):
     '''
     Download HDF files for a range of dates beginning at initial_date. The days argument
     is a list for which each element gives the number of days after initial date for each
@@ -44,7 +44,7 @@ def download_hdf_range(initial_date, days, dl_dir, satellite='Both'):
         download_hdf_day(date, dl_dir, satellite)
 
 
-def download_hdf_day(date, dl_dir, satellite='Both'):
+def download_hdf_day(date, dl_dir, satellite='Both', dl_again=False):
     src_url='https://ladsweb.modaps.eosdis.nasa.gov/archive/allData/61/'
     
     # Make dl_dir if the directory does not exist
@@ -64,42 +64,45 @@ def download_hdf_day(date, dl_dir, satellite='Both'):
         date = datetime.strptime(date, '%Y%m%d')
     date_yj = date.strftime('%Y/%j')
     
-    num_downloaded = 0
-    
     for sat in sat_codes:
-        dir_url = src_url + sat + '/' + date_yj + '/'
+        dir_url = src_url + sat + '/' + date_yj
         
-        # Get list of filenames for the date
-        filename_pattern = sat + '\.' + '.+?.hdf'
-        try:
-            dir_r = urlopen(Request(dir_url))
-        except URLError, e:
-            print(e.reason)
-        filenames = re.findall(filename_pattern, dir_r.read())
+        ### DOWNLOAD USING curl_dir
+        query = 'curl_dir -fx .hdf {0} {1}'.format(dir_url, dl_dir)
+        os.system(query)
         
-        # Download hdf files
-        for filename in filenames:
-            print('.', end='')
-            if not os.path.exists(dl_dir + filename):
-                num_downloaded += 1
-                file_url = dir_url + filename
-                
-                try:
-                    with closing(urlopen(file_url)) as file_r:
-                        with open(dl_dir + filename, 'wb') as write:
-                            copyfileobj(file_r, write)
-                except URLError, e:
-                    print(e.reason)
-        print()
-        
-    if num_downloaded > 0:
-        print('Download complete - {0} files downloaded to: {1}'.format(str(num_downloaded),
-                                                                      dl_dir))
-    else:
-        print('Files already exist in {0}'.format(dl_dir))
+        #### DOWNLOAD USING URLLIB2 ONE AT A TIME
+#         # Get list of filenames for the date
+#         filename_pattern = sat + '\.' + '.+?.hdf'
+#         try:
+#             dir_r = urlopen(Request(dir_url))
+#         except URLError, e:
+#             print(e.reason)
+#         filenames = re.findall(filename_pattern, dir_r.read())
+#         
+#         # Download hdf files
+#         for filename in filenames:
+#             print('.', end='')
+#             if (not os.path.exists(dl_dir + filename)) | dl_again:
+#                 num_downloaded += 1
+#                 file_url = dir_url + filename
+#                 
+#                 try:
+#                     with closing(urlopen(file_url)) as file_r:
+#                         with open(dl_dir + filename, 'wb') as write:
+#                             copyfileobj(file_r, write)
+#                 except URLError, e:
+#                     print(e.reason)
+#         print()
+#         
+#     if num_downloaded > 0:
+#         print('Download complete - {0} files downloaded to: {1}'.format(str(num_downloaded),
+#                                                                       dl_dir))
+#     else:
+#         print('Files already exist in {0}'.format(dl_dir))
 
 
-def load_data_day(date, dl_dir, satellite='Both', download=True, keep_files=True):
+def load_data_day(date, dl_dir, satellite='Both', download=True, dl_again=False, keep_files=True):
     '''
     This function can be used to download MODIS data for a day. A dictionary is returned
     containing 1D arrays with the following fields:
@@ -117,7 +120,10 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, keep_files=True
     download : bool, optional (Default: True)
         Choose whether to download the files. If False is chosen and they have not
         already been downloaded then no data will be loaded.
-    keep_files : bool, optional (Default: False)
+    dl_again : bool, optional (Default: False)
+        If it is True then it will download the data again, even if the file already
+        exists.
+    keep_files : bool, optional (Default: True)
         If False then the HDF files will be deleted once they have been passed into
         Python. If there are no more files in dl_dir once the files have been removed
         then the directory will also be removed.
@@ -125,7 +131,7 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, keep_files=True
     
     # Download?
     if download == True:
-        download_hdf_day(date, dl_dir, satellite)
+        download_hdf_day(date, dl_dir, satellite, dl_again)
     
     print('Loading MODIS HDF files.')
     
@@ -181,18 +187,6 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, keep_files=True
         ssa_land.extend(scaled['Deep_Blue_Spectral_Single_Scattering_Albedo_Land'][1, highest_qf])
         fm_frc_ocean.extend(scaled['Optical_Depth_Ratio_Small_Ocean_0.55micron'][highest_qf])
         ae_ocean.extend(scaled['Angstrom_Exponent_1_Ocean'][highest_qf])
-    
-#     # Put all the fields into a dictionary
-#     fields_arr = {'AOD_NM550' : np.array(aod),
-#                   'LNGD' : np.array(lon),
-#                   'LTTD' : np.array(lat),
-#                   'TIME' : np.array(time),
-#                   'STLT_IDNY' : np.array(sat_idny, dtype=int),
-#                   'ARSL_TYPE' : np.array(asl_type),
-#                   'AE_LAND' : np.array(ae_land),
-#                   'SSA_LAND' : np.array(ssa_land),
-#                   'FM_FRC_OCEAN' : np.array(fm_frc_ocean),
-#                   'AE_OCEAN' : np.array(ae_ocean)}
     
     lon = np.array(lon)
     lat = np.array(lat)
@@ -357,5 +351,5 @@ class h4Parse(object):
 
 
 if __name__ == '__main__':
-#     download_hdf_range('20180602', np.arange(45, dtype=int), '/scratch/savis/aeroct/downloads/MODIS_hdf/', satellite='Both')
-    load_data_day('20180602', '/scratch/savis/aeroct/downloads/MODIS_hdf/')
+    download_hdf_range('20170801', np.arange(242, dtype=int), '/scratch/savis/aeroct/downloads/MODIS/hdf', satellite='Both')
+#     download_hdf_day('20180604', '/scratch/savis/aeroct/downloads/MODIS/hdf', dl_again=True, satellite='Aqua')

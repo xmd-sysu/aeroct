@@ -22,20 +22,35 @@ import metum
 SCRATCH_PATH = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
 # How to output the names of the data sets
-name = {'aeronet': 'AERONET',
-        'modis': 'MODIS',
-        'modis_t' : 'MODIS Terra',
-        'modis_a' : 'MODIS Aqua',
-        'metum': 'Unified Model'}
+print_name = {'aeronet': 'AERONET',
+              'modis': 'MODIS',
+              'modis_t' : 'MODIS Terra',
+              'modis_a' : 'MODIS Aqua',
+              'metum': 'Unified Model'}
 
 
 class DataFrame():
     '''
-    The data frame into which the AOD data is processed. Only a single day's data and
-    some from the days before and after are included.
-    The AOD data, latitudes, longitudes, and times are all stored in 1D numpy arrays, all
-    of the same length. The date, wavelength and forecast time (for models) are stored
-    as attributes. So each forecast time and date requires a new instance.
+    The data frame into which the AOD data is processed. Only a single day's data is
+    included from a single source (& forecast time).
+    
+    The total AOD data is stored in the first index of the 'aod' attribute. If there are
+    values for the AOD due to dust at every location then these are stored in the second
+    index of 'aod'. If there are not values for the dust AOD at every location (eg. MODIS
+    data) then the total AOD values can be filtered using filters stored in the
+    'dust_filters' attribute.
+    
+    The AOD data, longitudes, latitudes, and times for each data point are stored in 1D
+    numpy arrays if the data frame is not loaded from an Iris cube (ie. not model data).
+    If it has been loaded from an iris cube then the AOD data will be 3D and the
+    longitudes, latitudes, and times attributes store only the axes data (the order for
+    which is time, lat, lon).
+    
+    Initialising:
+    
+    Attributes:
+    
+    Methods:
     '''
 
     def __init__(self, aod, latitudes, longitudes, times, date, wavelength=550,
@@ -53,9 +68,9 @@ class DataFrame():
         self.wavelength = wavelength                # [nm]
         self.data_set   = data_set                  # The name of the data set
         self.forecast_time = kw.setdefault('forecast_time', None)  # [hours]
-        self.name = name[data_set]
+        self.name = print_name[data_set]
         if self.forecast_time is not None:
-            self.name += ' (Lead time: {} hours)'.format(int(self.forecast_time))
+            self.name += ' (Lead time: {0} hours)'.format(int(self.forecast_time))
         
         # Dictionary containing lists of indices for the total AOD data which satisfies
         # various dust filter conditions. Only currently used for MODIS data. Eg:
@@ -119,7 +134,7 @@ class DataFrame():
             - 'NONE: No filter.
             By default ['ARSL_TYPE_LAND'] is used if the data has been retrieved from
             MetDB. If downloaded from NASA the following is used:
-            [['AE_LAND', 'SSA_LAND'], ['FM_FRC_OCEAN', 'AE_OCEAN', 'OCEAN_REGION']]
+            [['AE_LAND', 'SSA_LAND'], ['FM_FRC_OCEAN', 'AE_OCEAN']]
         '''
         get_total = (aod_type=='total') | ((aod_type is None) &
                                            (self.aod[0] is not None))
@@ -159,7 +174,7 @@ class DataFrame():
                             dust_filter_fields = ['ARSL_TYPE_LAND']
                         else:
                             dust_filter_fields = [['AE_LAND', 'SSA_LAND'],
-                                                  ['FM_FRC_OCEAN', 'AE_OCEAN','REGION_OCEAN']]
+                                                  ['FM_FRC_OCEAN', 'AE_OCEAN']]
                     
                     # Perform AND over the filters in the second index and
                     # OR over the first index
@@ -202,7 +217,7 @@ class DataFrame():
             
         '''
         # Make directory if it does not exist
-        os.system('mkdir -p {}'.format(dir_path))
+        os.system('mkdir -p {0}'.format(dir_path))
         
         if filetype == 'pickle':
             file_ext = 'pkl'
@@ -212,7 +227,7 @@ class DataFrame():
         if filename != None:
             pass
         elif type(self.data_set) == str:
-            filename = '{}_{}_'.format(self.data_set, self.date.strftime('%Y%m%d'))
+            filename = '{0}_{1}_'.format(self.data_set, self.date.strftime('%Y%m%d'))
         else:
             raise ValueError, 'data_set attribute invalid. Cannot create filename'
         
@@ -222,10 +237,10 @@ class DataFrame():
         filepath = dir_path + filename + str(i).zfill(2) + file_ext
         
         # Write file
-        os.system('touch {}'.format(filepath))
+        os.system('touch {0}'.format(filepath))
         with open(filepath, 'w') as writer:
             pickle.dump(self, writer, -1)
-        print('Data frame saved successfully to {}'.format(filepath))
+        print('Data frame saved successfully to {0}'.format(filepath))
 
 
 
@@ -259,9 +274,9 @@ class MatchFrame():
         self.cube = kw.setdefault('cube', None)    # Contains AOD difference for a model-model match
         self.names = ['', '']
         for i in [0,1]:
-            self.names[i] = name[data_sets[i]]
+            self.names[i] = print_name[data_sets[i]]
             if self.forecast_times[i] is not None:
-                self.names[i] += ' (Lead time: {} hours)'.format(int(self.forecast_times[i]))
+                self.names[i] += ' (Lead time: {0} hours)'.format(int(self.forecast_times[i]))
         
         # Stats
         self.RMS = np.sqrt(np.mean((self.data[1] - self.data[0])**2))   # Root mean square
@@ -291,7 +306,8 @@ class MatchFrame():
         return df
     
     
-    def dump(self, filename=None, dir_path=SCRATCH_PATH+'match_frames/', filetype='pickle'):
+    def dump(self, filename=None, dir_path=SCRATCH_PATH+'match_frames/',
+             filetype='pickle', overwrite=False):
         '''
         Save the data frame as a file in the chosen location. The filepath is returned.
         
@@ -301,6 +317,8 @@ class MatchFrame():
         dir_path: str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
             The path to the directory where the file will be saved.
         '''
+        if dir_path[-1] != '/': dir_path += '/'
+        
         # Make directory if it does not exist
         os.system('mkdir -p {0}'.format(dir_path))
         
@@ -319,7 +337,8 @@ class MatchFrame():
                 raise ValueError, 'data_sets attribute invalid. Cannot create filename'
         
         i = 0
-        while os.path.exists(dir_path + filename + str(i).zfill(2) + file_ext):
+        while os.path.exists(dir_path + filename + str(i).zfill(2) + file_ext) & \
+              (not overwrite):
             i += 1
         
         filepath = dir_path + filename + str(i).zfill(2) + file_ext
@@ -346,15 +365,16 @@ def load(data_set, date, forecast_time=0, src=None, dl_save=True,
     
     Parameters:
     data_set: str
-        The data set to load. This may be 'aeronet', 'modis', or 'metum'.
-    date: str
-        The date for the data that is to be loaded. Specify in format 'YYYYMMDD'.
+        The data set to load. This may be 'aeronet', 'modis', 'modis_a', 'modis_t',
+        or 'metum'.
+    date: str or datetime
+        The date for the data that is to be loaded. Specify in format 'YYYYMMDD' for strings.
     forecast_time: int, optional (Default: 0)
         The forecast lead time to use if metum is chosen.
     src : str, optional (Default: None)
         The source to retrieve the data from.
-        MODIS: None or 'MetDB' for MetDB extraction (Note: fewer dust filters available)
-               'NASA' to download from ladsweb.modaps.eosdis.nasa.gov/archive/allData/61/
+        MODIS: None or 'NASA' to download from ladsweb.modaps.eosdis.nasa.gov/archive/allData/61/
+               'MetDB' for MetDB extraction (Note: fewer dust filters available)
     dl_save : bool, optional (Default: True)
         Choose whether to save any downloaded data.
     dl_again : bool, optional (Default: False)
@@ -364,8 +384,10 @@ def load(data_set, date, forecast_time=0, src=None, dl_save=True,
         The directory in which to save downloaded data. The different data sets will be
         saved within directories in this location.
     '''
-    if dl_dir[-1] != '/':
-        dl_dir = dl_dir + '/'
+    if dl_dir[-1] != '/':   dl_dir += '/'
+    
+    if isinstance(date, datetime):
+        date = date.strftime('%Y%m%d')
     
     ds_names = {'aeronet': 'AERONET',
                 'modis': 'MODIS',
@@ -375,8 +397,10 @@ def load(data_set, date, forecast_time=0, src=None, dl_save=True,
     ds_name = ds_names[data_set]
     
     if data_set == 'aeronet':
+        print('-----------AERONET-----------')
+        
         dl_dir = dl_dir + 'AERONET/'
-        filepath = '{0}{1}_{2}'.format(dl_dir, ds_name, date)
+        filepath = '{0}AERONET_{1}'.format(dl_dir, date)
         
         if (not os.path.exists(filepath)) | (dl_again == True):
             print('Downloading AERONET data for ' + date +'.')
@@ -388,9 +412,9 @@ def load(data_set, date, forecast_time=0, src=None, dl_save=True,
                 if not os.path.exists(dl_dir):
                     os.makedirs(dl_dir)
                 
-                os.system('touch {}'.format(filepath))
+                os.system('touch {0}'.format(filepath))
                 with open(filepath, 'w') as w:
-                    print('Saving data to {}'.format(filepath))
+                    print('Saving data to {0}'.format(filepath))
                     pickle.dump(aod_string, w, -1)
         else:
             with open(filepath, 'r') as r:
@@ -399,7 +423,7 @@ def load(data_set, date, forecast_time=0, src=None, dl_save=True,
         aod_df = aeronet.parse_data(aod_string)
         print('Processing AERONET data...', end='')
         parameters = aeronet.process_data(aod_df, date)
-        print('Complete.\n')
+        print('Complete.')
         return DataFrame(*parameters, data_set=data_set)
     
     elif data_set[:5] == 'modis':
@@ -410,31 +434,32 @@ def load(data_set, date, forecast_time=0, src=None, dl_save=True,
         else:
             satellite = 'Both'
         
-        dl_dir_mod = dl_dir + 'MODIS/'
-        filepath = '{0}{1}_{2}'.format(dl_dir_mod, ds_name, date)
-        modis_filepath = '{}MODIS_{}'.format(dl_dir_mod, date)
+        print('--------MODIS ({0})---------'.format(satellite))
         
-        if (not os.path.exists(filepath)) & (not os.path.exists(modis_filepath)) | \
-                                                                    (dl_again == True):
+        dl_dir = dl_dir + 'MODIS/'
+        filepath = '{0}{1}_{2}'.format(dl_dir, ds_name, date)
+        modis_filepath = '{0}MODIS_{1}'.format(dl_dir, date)
+        
+        if (not os.path.exists(filepath)) & (not os.path.exists(modis_filepath)) | dl_again:
             
-            if (src is None) | (src == 'MetDB'):
-                print('Extracting {} data from MetDB for {}.'.format(ds_name, date))
+            if (src == 'MetDB'):
+                print('Extracting {0} data from MetDB for {1}.'.format(ds_name, date))
                 aod_dict = modis.retrieve_data_day_metdb(date, satellite)
             
-            elif src == 'NASA':
-                print('Downloading {} data for {}.'.format(ds_name, date))
-                aod_dict = modis.load_data_day(date, dl_dir=dl_dir+'MODIS_hdf/',
-                                               satellite=satellite, keep_files=True)
+            elif (src is None) | (src == 'NASA'):
+                print('Downloading {0} data for {1}.'.format(ds_name, date))
+                aod_dict = modis.load_data_day(date, dl_dir=dl_dir+'hdf/',
+                                               satellite=satellite, dl_again=dl_again)
             
             # Save data
             if (dl_save is True):
                 
-                if not os.path.exists(dl_dir_mod):
-                    os.makedirs(dl_dir_mod)
+                if not os.path.exists(dl_dir):
+                    os.makedirs(dl_dir)
                 
-                os.system('touch {}'.format(filepath))
+                os.system('touch {0}'.format(filepath))
                 with open(filepath, 'w') as w:
-                    print('Saving data to {}.'.format(filepath))
+                    print('Saving data to {0}.'.format(filepath))
                     pickle.dump(aod_dict, w, -1)
         elif os.path.exists(filepath):
             with open(filepath, 'r') as r:
@@ -445,25 +470,45 @@ def load(data_set, date, forecast_time=0, src=None, dl_save=True,
         
         print('Processing MODIS data...', end='')
         parameters = modis.process_data(aod_dict, date, satellite, src=src)
-        print('Complete.\n')
+        print('Complete.')
         return DataFrame(*parameters[:-1], data_set=data_set, dust_filter=parameters[-1])
     
     elif data_set == 'metum':
-        dl_dir = dl_dir + 'UM/'
+        print('------UNIFIED MODEL {0:03d}Z-----'.format(forecast_time))
         
-        metum.download_data_day(date, forecast_time, dl_dir, dl_again)
-        print('Loading Unified Model files.')
-        aod_cube = metum.load_files(date, forecast_time, dl_dir)
+        dl_dir = dl_dir + 'UM/'
+        filepath = '{0}Unified_Model{1:03d}_{2}'.format(dl_dir, forecast_time, date)
+        
+        if (not os.path.exists(filepath)) | (dl_again == True):
+            
+            metum.download_data_day(date, forecast_time, dl_dir + 'pp/', dl_again)
+            print('Loading Unified Model files.')
+            aod_cube = metum.load_files(date, forecast_time, dl_dir + 'pp/')
+            
+            # Save data
+            if (dl_save is True):
+                
+                if not os.path.exists(dl_dir):
+                    os.makedirs(dl_dir)
+                
+                os.system('touch {0}'.format(filepath))
+                with open(filepath, 'w') as w:
+                    print('Saving data to {0}'.format(filepath))
+                    pickle.dump(aod_cube, w, -1)
+        else:
+            with open(filepath, 'r') as r:
+                aod_cube = pickle.load(r)
+            
         print('Processing Unified Model data...', end='')
         aod_cube = metum.process_data(aod_cube, date, forecast_time)
-        print('Complete.\n')
+        print('Complete.')
         return DataFrame.from_cube(aod_cube, data_set)
     
     else:
-        raise ValueError, 'Invalid data set: {}'.format(data_set)
+        raise ValueError, 'Invalid data set: {0}'.format(data_set)
 
 
-def load_from_file(filename, dir_path=SCRATCH_PATH+'match_frames'):
+def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames'):
     '''
     Load the data frame from a file in the chosen location. Note that saving and
     loading large data frames can take some time.
@@ -474,17 +519,77 @@ def load_from_file(filename, dir_path=SCRATCH_PATH+'match_frames'):
     dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
         The path to the directory from which to load the file.
     '''
-    if dir_path[-1] != '/':
-        dir_path = dir_path + '/'
+    if dir_path[-1] != '/': dir_path += '/'
     
     if not os.path.exists(dir_path + filename):
-        raise ValueError, 'File does not exist: {}'.format(dir_path + filename)
+        raise ValueError, 'File does not exist: {0}'.format(dir_path + filename)
     
-    print('Loading data frame(s) from {} ...'.format(dir_path + filename), end='')
+    print('Loading data frame(s) from {0}...'.format(dir_path + filename), end='')
     with open(dir_path + filename, 'r') as reader:
         data_frame = pickle.load(reader)
     print('Complete')
     return data_frame
+
+
+def concatenate_match_frames(df_list):
+    '''
+    Concatenate a list of data frames over a period of time so that the average may be
+    plotted on a map. A data frame of the input type (DataFrame or MatchFrame)
+    (Currently only works for MatchFrames) is returned with a date attribute containing
+    the list of dates.
+    
+    Parameters:
+    df_list : iterable of DataFrames / MatchFrames
+        The list of data frames over a period. All must have the same wavelength and
+        data-set(s). 
+    '''
+    # Currently only works for MatchFrames
+    if isinstance(df_list[0], MatchFrame):
+        
+        match_time = df_list[0].match_time
+        match_rad = df_list[0].match_radius
+        wavelength = df_list[0].wavelength
+        fc_times = df_list[0].forecast_times
+        data_sets = df_list[0].data_sets
+        aod_type = df_list[0].aod_type
+        
+        dates = []
+        data0, data_std0, data_num0 = [], [], []
+        data1, data_std1, data_num1 = [], [], []
+        longitudes, latitudes, times = [], [], []
+        time_diff = []
+        
+        for df in df_list:
+            
+            # Check that the wavelengths and data-sets all match
+            if df.wavelength != df_list[0].wavelength:
+                raise ValueError('The list of data frames do not contain data for the same\
+                                  wavelength.')
+            if df.data_sets != df_list[0].data_sets:
+                raise ValueError('The list of data frames do not contain data from the\
+                                  same data-sets.')
+            
+            dates.append(df.date)
+            data0.extend(df.data[0])
+            data_std0.extend(df.data_std[0])
+            data_num0.extend(df.data_num[0])
+            data1.extend(df.data[1])
+            data_std1.extend(df.data_std[1])
+            data_num1.extend(df.data_num[1])
+            time_diff.extend(df.time_diff)
+            longitudes.extend(df.longitudes)
+            latitudes.extend(df.latitudes)
+            times.extend(times)
+        
+        data = np.array([data0, data1])
+        data_std = np.array([data_std0, data_std1])
+        data_num = np.array([data_num0, data_num1])
+        longitudes, latitudes = np.array(longitudes), np.array(latitudes)
+        times = np.array(times)
+        
+        return MatchFrame(data, data_std, data_num, time_diff, longitudes, latitudes, times,
+                          dates, match_time, match_rad, wavelength, fc_times,
+                          data_sets, aod_type)
 
 
 
@@ -495,4 +600,6 @@ if __name__=='__main__':
     
     for date in dt_list:
         print('Downloading for: ', date)
-        load('aeronet', date)
+        load('metum', date.strftime('%Y%m%d'), forecast_time=6, dl_again=True)
+        load('metum', date.strftime('%Y%m%d'), forecast_time=12)
+        load('metum', date.strftime('%Y%m%d'), forecast_time=18)

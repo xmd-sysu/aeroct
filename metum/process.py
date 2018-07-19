@@ -13,7 +13,7 @@ import iris
 import numpy as np
 from datetime import datetime, timedelta
 
-scratch_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/global-nwp/'
+scratch_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/downloads/UM/pp/'
 wavelength = {3 : 550}  # Wavelengths given the pseudo-level
 
 
@@ -23,7 +23,7 @@ def load_files(date, forecast_time, src_path=None):
     wavelength. The files are merged along time when they are loaded.
     
     Parameters:
-    date: (str) The date of the files to load in format 'YYYYMMDD'.
+    date: (str) The date of the data to load in format 'YYYYMMDD'.
     forecast_time: (int) The number of hours ahead for the forecast.
         Possible choices: 0, 3, 6, 9, 12, 15, 18, 21, 24.
     src_path: (Optional) (str) The file path containing the extracted forecast files.
@@ -38,10 +38,20 @@ def load_files(date, forecast_time, src_path=None):
         print('Invalid forecast_time. It must be one of 0, 3, 6, 9, 12, 15, 18, 21, 24.')
         return
     
-    # This loads files from src_path with filenames containing '*_###.*' where ### is
-    # the forecast time plus 3, ie. 003 is the analysis time.
-    aod_cube = iris.load_cube(src_path + '*' + date + '*_' + forecast_time_str + '.*')
+    # Get the dates of the two files containing data during 'date'
+    days_before = int((forecast_time - 6) / 24)
+    date1 = datetime.strptime(date, '%Y%m%d') - timedelta(days=(days_before + 1))
+    date2 = datetime.strptime(date, '%Y%m%d') - timedelta(days=days_before)
+    date1 = date1.strftime('%Y%m%d')
+    date2 = date2.strftime('%Y%m%d')
     
+    # This loads files from src_path with filenames containing '*YYYYMMDD*_###.*' where
+    # ### is the forecast time plus 3, ie. 003 is the analysis time.
+    aod_cube1 = iris.load_cube('{0}*{1}*_{2}.*'.format(src_path, date1, forecast_time_str))
+    aod_cube2 = iris.load_cube('{0}*{1}*_{2}.*'.format(src_path, date2, forecast_time_str))
+    
+    cube_list = iris.cube.CubeList([aod_cube1, aod_cube2])
+    aod_cube = cube_list.concatenate_cube()
     return aod_cube
 
 
@@ -100,7 +110,6 @@ def process_data(aod_cube, date, forecast_time):
 
 
 if __name__ == '__main__':
-    cube = load_files('20180623', 6)
-    process_data(cube, '20180623', 6)
+    cube = load_files('20180602', 0)
+    process_data(cube, '20180602', 0)
     print(cube)
-#     
