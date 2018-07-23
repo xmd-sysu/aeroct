@@ -5,13 +5,9 @@ Created on Jul 10, 2018
 '''
 from __future__ import division, print_function
 import os
-import re
 import glob
 from datetime import datetime, timedelta
 import numpy as np
-from urllib2 import urlopen, Request, URLError
-from contextlib import closing
-from shutil import copyfileobj
 try:
     from pyhdf.SD import SD, SDC
     from pyhdf.error import HDF4Error
@@ -52,12 +48,9 @@ def download_hdf_day(date, dl_dir, satellite='Both', dl_again=False):
         os.makedirs(dl_dir)
     
     # Get an iterable of the codes for the satellites used in the urls 
-    if satellite == 'Both':
-        sat_codes = ['MOD04_L2', 'MYD04_L2']
-    elif satellite == 'Terra':
-        sat_codes = ['MOD04_L2']
-    elif satellite == 'Aqua':
-        sat_codes = ['MYD04_L2']
+    if satellite == 'Both':     sat_codes = ['MOD04_L2', 'MYD04_L2']
+    elif satellite == 'Terra':  sat_codes = ['MOD04_L2']
+    elif satellite == 'Aqua':   sat_codes = ['MYD04_L2']
     
     # Convert date format from yyyymmdd to yyyy/jjj for use in the url
     if type(date) is str:
@@ -102,7 +95,7 @@ def download_hdf_day(date, dl_dir, satellite='Both', dl_again=False):
 #         print('Files already exist in {0}'.format(dl_dir))
 
 
-def load_data_day(date, dl_dir, satellite='Both', download=True, dl_again=False, keep_files=True):
+def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=True):
     '''
     This function can be used to download MODIS data for a day. A dictionary is returned
     containing 1D arrays with the following fields:
@@ -117,9 +110,6 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, dl_again=False,
         The directory in which the HDF files will be saved when downloaded.
     satellite : {'Both', 'Terra, 'Aqua'}, optional (Default: 'Both')
         Which satellite's data to load.
-    download : bool, optional (Default: True)
-        Choose whether to download the files. If False is chosen and they have not
-        already been downloaded then no data will be loaded.
     dl_again : bool, optional (Default: False)
         If it is True then it will download the data again, even if the file already
         exists.
@@ -129,25 +119,21 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, dl_again=False,
         then the directory will also be removed.
     '''
     
-    # Download?
-    if download == True:
-        download_hdf_day(date, dl_dir, satellite, dl_again)
-    
-    print('Loading MODIS HDF files.')
-    
     # Convert date format from yyyymmdd to yyyyjjj to find the HDF filepaths
     date_dt = datetime.strptime(date, '%Y%m%d')
     date_yj = date_dt.strftime('%Y%j')
     
-    # Get the satellite code for the desired satellite data
-    if satellite == 'Both':
-        sat_code = ''
-    elif satellite == 'Terra':
-        sat_code = 'MOD04_L2'
-    elif satellite == 'Aqua':
-        sat_code = 'MYD04_L2'
+    # Get the satellite code for the desired satellite data for use in the filenames
+    if satellite == 'Both':     sat_code = ''
+    elif satellite == 'Terra':  sat_code = 'MOD04_L2'
+    elif satellite == 'Aqua':   sat_code = 'MYD04_L2'    
     
     files = glob.glob('{0}*{1}*{2}.*.hdf'.format(dl_dir, sat_code, date_yj))
+    
+    # Download?
+    if dl_again == True | len(files) <= 2:
+        download_hdf_day(date, dl_dir, satellite, dl_again)
+        files = glob.glob('{0}*{1}*{2}.*.hdf'.format(dl_dir, sat_code, date_yj))
     
     # Get the fields from the files and concatenate them in lists
     lon, lat, time, asl_type, aod, sat_idny = [], [], [], [], [], []
@@ -160,7 +146,10 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, dl_again=False,
                   'Optical_Depth_Ratio_Small_Ocean_0.55micron',
                   'Angstrom_Exponent_1_Ocean']
     
+    print('Loading {0} MODIS HDF files for {1}.'.format(len(files), date))
+    
     for f in files[::-1]:
+        print('.', end='')
         parser = h4Parse(f)
         scaled = parser.get_scaled(fieldnames)
         
@@ -170,10 +159,8 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, dl_again=False,
         time_hours = scaled['Scan_Start_Time'] / 3600 - date_hours
         
         # Get the satellite ID number
-        if 'MOD04_L2' in f:
-            sat_id = 783
-        elif 'MYD04_L2' in f:
-            sat_id = 784
+        if 'MOD04_L2' in f:     sat_id = 783
+        elif 'MYD04_L2' in f:   sat_id = 784
         # Include only the data with the highest quality flag
         highest_qf = (scaled['AOD_550_Dark_Target_Deep_Blue_Combined_QA_Flag'] == 3)
         
@@ -198,6 +185,7 @@ def load_data_day(date, dl_dir, satellite='Both', download=True, dl_again=False,
     ssa_land = np.array(ssa_land)
     fmf_ocean = np.array(fm_frc_ocean)
     ae_ocean = np.array(ae_ocean)
+    print()
      
     # Put all of the fields into one structured array
     fields_type = np.dtype([('AOD_NM550', aod.dtype), ('LNGD', lon.dtype),

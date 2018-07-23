@@ -18,6 +18,7 @@ except ModuleNotFoundError:
 import aeronet
 import modis
 import metum
+import utils
 
 SCRATCH_PATH = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
@@ -356,8 +357,8 @@ class MatchFrame():
 
 
 
-def load(data_set, date, forecast_time=0, src=None, dl_save=True,
-         dl_again=False, dl_dir=SCRATCH_PATH+'downloads/'):
+def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=None,
+         dl_again=False):
     '''
     Load a data frame for a given date using data from either AERONET, MODIS, or the
     Unified Model (metum). This will allow it to be matched and compared with other data
@@ -369,20 +370,18 @@ def load(data_set, date, forecast_time=0, src=None, dl_save=True,
         or 'metum'.
     date: str or datetime
         The date for the data that is to be loaded. Specify in format 'YYYYMMDD' for strings.
+    dl_dir : str, optional (Default: '/scratch/{USER}/aeroct/downloads/')
+        The directory in which to save downloaded data. The different data sets will be
+        saved within directories in this location.
     forecast_time: int, optional (Default: 0)
         The forecast lead time to use if metum is chosen.
     src : str, optional (Default: None)
         The source to retrieve the data from.
         MODIS: None or 'NASA' to download from ladsweb.modaps.eosdis.nasa.gov/archive/allData/61/
                'MetDB' for MetDB extraction (Note: fewer dust filters available)
-    dl_save : bool, optional (Default: True)
-        Choose whether to save any downloaded data.
     dl_again : bool, optional (Default: False)
         If it is True then it will download the data again, even if the file already
         exists.
-    dl_dir : str, optional (Default: '/scratch/{USER}/aeroct/downloads/')
-        The directory in which to save downloaded data. The different data sets will be
-        saved within directories in this location.
     '''
     if dl_dir[-1] != '/':   dl_dir += '/'
     
@@ -398,106 +397,61 @@ def load(data_set, date, forecast_time=0, src=None, dl_save=True,
     
     if data_set == 'aeronet':
         print('-----------AERONET-----------')
+        aer_dl_dir = dl_dir + 'AERONET/'
+        filepath = '{0}AERONET_{1}'.format(aer_dl_dir, date)
         
-        dl_dir = dl_dir + 'AERONET/'
-        filepath = '{0}AERONET_{1}'.format(dl_dir, date)
+        # Download data
+        utils.download_range(data_set, [date], dl_dir=dl_dir, dl_again=dl_again)
         
-        if (not os.path.exists(filepath)) | (dl_again == True):
-            print('Downloading AERONET data for ' + date +'.')
-            aod_string = aeronet.download_data_day(date)
-            
-            # Save data
-            if (dl_save is True):
-                
-                if not os.path.exists(dl_dir):
-                    os.makedirs(dl_dir)
-                
-                os.system('touch {0}'.format(filepath))
-                with open(filepath, 'w') as w:
-                    print('Saving data to {0}'.format(filepath))
-                    pickle.dump(aod_string, w, -1)
-        else:
-            with open(filepath, 'r') as r:
-                aod_string = pickle.load(r)
+        # Load downloaded data
+        with open(filepath, 'r') as r:
+            dl_data = pickle.load(r)
         
-        aod_df = aeronet.parse_data(aod_string)
+        aod_df = aeronet.parse_data(dl_data)
         print('Processing AERONET data...', end='')
         parameters = aeronet.process_data(aod_df, date)
         print('Complete.')
         return DataFrame(*parameters, data_set=data_set)
     
     elif data_set[:5] == 'modis':
-        if data_set == 'modis_t':
-            satellite = 'Terra'
-        elif data_set == 'modis_a':
-            satellite = 'Aqua'
-        else:
-            satellite = 'Both'
+        
+        if data_set == 'modis_t':   satellite = 'Terra'
+        elif data_set == 'modis_a': satellite = 'Aqua'
+        else:                       satellite = 'Both'
         
         print('--------MODIS ({0})---------'.format(satellite))
+        mod_dl_dir = dl_dir + 'MODIS/'
+        filepath = '{0}{1}_{2}'.format(mod_dl_dir, ds_name, date)
+        modis_filepath = '{0}MODIS_{1}'.format(mod_dl_dir, date)
         
-        dl_dir = dl_dir + 'MODIS/'
-        filepath = '{0}{1}_{2}'.format(dl_dir, ds_name, date)
-        modis_filepath = '{0}MODIS_{1}'.format(dl_dir, date)
+        # Download data
+        utils.download_range(data_set, [date], dl_dir=dl_dir, dl_again=dl_again)
         
-        if (not os.path.exists(filepath)) & (not os.path.exists(modis_filepath)) | dl_again:
-            
-            if (src == 'MetDB'):
-                print('Extracting {0} data from MetDB for {1}.'.format(ds_name, date))
-                aod_dict = modis.retrieve_data_day_metdb(date, satellite)
-            
-            elif (src is None) | (src == 'NASA'):
-                print('Downloading {0} data for {1}.'.format(ds_name, date))
-                aod_dict = modis.load_data_day(date, dl_dir=dl_dir+'hdf/',
-                                               satellite=satellite, dl_again=dl_again)
-            
-            # Save data
-            if (dl_save is True):
-                
-                if not os.path.exists(dl_dir):
-                    os.makedirs(dl_dir)
-                
-                os.system('touch {0}'.format(filepath))
-                with open(filepath, 'w') as w:
-                    print('Saving data to {0}.'.format(filepath))
-                    pickle.dump(aod_dict, w, -1)
-        elif os.path.exists(filepath):
+        # Load downloaded data
+        if os.path.exists(filepath):
             with open(filepath, 'r') as r:
-                aod_dict = pickle.load(r)
-        else:
+                dl_data = pickle.load(r)
+        elif os.path.exists(modis_filepath):
             with open(modis_filepath, 'r') as r:
-                aod_dict = pickle.load(r)
+                dl_data = pickle.load(r)
         
         print('Processing MODIS data...', end='')
-        parameters = modis.process_data(aod_dict, date, satellite, src=src)
+        parameters = modis.process_data(dl_data, date, satellite, src=src)
         print('Complete.')
         return DataFrame(*parameters[:-1], data_set=data_set, dust_filter=parameters[-1])
     
     elif data_set == 'metum':
         print('------UNIFIED MODEL {0:03d}Z-----'.format(forecast_time))
         
-        dl_dir = dl_dir + 'UM/'
-        filepath = '{0}Unified_Model{1:03d}_{2}'.format(dl_dir, forecast_time, date)
+        um_dl_dir = dl_dir + 'UM/'
+        filepath = '{0}Unified_Model{1:03d}_{2}'.format(um_dl_dir, forecast_time, date)
         
-        if (not os.path.exists(filepath)) | (dl_again == True):
-            
-            metum.download_data_day(date, forecast_time, dl_dir + 'pp/', dl_again)
-            print('Loading Unified Model files.')
-            aod_cube = metum.load_files(date, forecast_time, dl_dir + 'pp/')
-            
-            # Save data
-            if (dl_save is True):
-                
-                if not os.path.exists(dl_dir):
-                    os.makedirs(dl_dir)
-                
-                os.system('touch {0}'.format(filepath))
-                with open(filepath, 'w') as w:
-                    print('Saving data to {0}'.format(filepath))
-                    pickle.dump(aod_cube, w, -1)
-        else:
-            with open(filepath, 'r') as r:
-                aod_cube = pickle.load(r)
+        # Download data
+        utils.download_range(data_set, [date], dl_dir=dl_dir, dl_again=dl_again)
+        
+        # Load the downloaded data
+        with open(filepath, 'r') as r:
+            aod_cube = pickle.load(r)
             
         print('Processing Unified Model data...', end='')
         aod_cube = metum.process_data(aod_cube, date, forecast_time)

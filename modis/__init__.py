@@ -1,3 +1,3 @@
 from metdb_extract import retrieve_data_day_metdb
-from modis.download_hdf import load_data_day, download_hdf_range
+from modis.download_hdf import load_data_day, download_hdf_day
 from process import process_data
