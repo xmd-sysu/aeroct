@@ -87,4 +87,4 @@ def process_data(aod_array, date, satellite='Both', src=None):
                    'REGION_OCEAN' : filter_region_mask_ocean,
                    'NONE': np.full_like(filter_type_land, True)}
     
-    return [[aod, None], lat, lon, time, date, wl, dust_filter]
+    return [[aod, None], lon, lat, time, date, wl, dust_filter]

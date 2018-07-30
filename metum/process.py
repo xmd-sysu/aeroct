@@ -36,7 +36,8 @@ def load_files(date, forecast_time, src_path=None):
     if np.isin(np.arange(0,166,3), forecast_time).any():
         forecast_time_str = str(forecast_time+3).zfill(3)
     else:
-        raise ValueError('Invalid forecast_time. It must be a multiple of 3 between 0 and 165.')
+        raise ValueError('Invalid forecast_time. It must be a multiple of 3 between 0 \
+                          and 165.')
     
     # Get the dates of the two files containing data during 'date'
     days_before = int((forecast_time - 6) / 24)
@@ -58,11 +59,11 @@ def load_files(date, forecast_time, src_path=None):
     
     # Concatenate the two days into a single cube
     cube_list = iris.cube.CubeList([aod_cube1, aod_cube2])
-    if np.any(np.array([cube.coord('forecast_period').points.size for cube in cube_list]) > 1): 
-        for cube in cube_list:
-            cube.remove_coord('forecast_period')
-            forecast_coord = iris.coords.DimCoord(forecast_time, standard_name='forecast_period', units='hours')
-            cube.add_aux_coord(forecast_coord)
+    for cube in cube_list:
+        cube.remove_coord('forecast_period')
+        forecast_coord = iris.coords.DimCoord(forecast_time, units='hours', 
+                                              standard_name='forecast_period')
+        cube.add_aux_coord(forecast_coord)
     equalise_attributes(cube_list)
     aod_cube = cube_list.concatenate_cube()
     return aod_cube

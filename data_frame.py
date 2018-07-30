@@ -56,7 +56,7 @@ class DataFrame():
     Methods:
     '''
 
-    def __init__(self, aod, latitudes, longitudes, times, date, wavelength=550,
+    def __init__(self, aod, longitudes, latitudes, times, date, wavelength=550,
                  data_set=None, **kw):
         # Ensure longitudes are in range [-180, 180]
         longitudes = longitudes.copy()
@@ -100,7 +100,7 @@ class DataFrame():
         wl = cube.coord('wavelength').points[0]
         fc_time = cube.coord('forecast_time').points[0]
         
-        return cls(aod, lats, lons, times, date, wl, data_set,
+        return cls(aod, lons, lats, times, date, wl, data_set,
                    forecast_time=fc_time, cube=cube)
     
     
@@ -537,7 +537,7 @@ def concatenate_data_frames(df_list):
             time_diff.extend(df.time_diff)
             longitudes.extend(df.longitudes)
             latitudes.extend(df.latitudes)
-            times.extend(times)
+            times.extend(df.times)
         
         data = np.array([data0, data1])
         data_std = np.array([data_std0, data_std1])
@@ -568,13 +568,17 @@ def concatenate_data_frames(df_list):
                                   same data-sets.')
             
             dates.append(df.date)
-            aod0.extend(df.aod[0].ravel())
-            aod1.extend(df.aod[1].ravel())
+            if df.aod[0] is None: aod0 = None
+            else: aod0.extend(df.aod[0].ravel())
+            if df.aod[1] is None: aod1 = None
+            else: aod1.extend(df.aod[1].ravel())
             longitudes.extend(df.longitudes)
             latitudes.extend(df.latitudes)
             times.extend(times)
         
-        aod = np.array([aod0, aod1])
+        if aod0 is not None: aod0 = np.array(aod0)
+        if aod1 is not None: aod1 = np.array(aod1)
+        aod = [aod0, aod1]
         longitudes, latitudes = np.array(longitudes), np.array(latitudes)
         times = np.array(times)
         

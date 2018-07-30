@@ -73,7 +73,7 @@ def process_data(aeronet_df, date, wavelength=550):
     total_hours = lambda td: td.seconds / 3600 + td.days * 24
     time = np.array([total_hours(dt - date) for dt in aeronet_df['datetime']])
     
-    return [aod, lat, lon, time, date, wavelength]
+    return [aod, lon, lat, time, date, wavelength]
 
 
 if __name__ == '__main__':
