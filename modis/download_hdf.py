@@ -43,6 +43,8 @@ def download_hdf_range(initial_date, days, dl_dir, satellite='Both', dl_again=Fa
 def download_hdf_day(date, dl_dir, satellite='Both', dl_again=False):
     src_url='https://ladsweb.modaps.eosdis.nasa.gov/archive/allData/61/'
     
+    print('Downloading MODIS ({0}) HDF files for {1}.'.format(satellite, date))
+    
     # Make dl_dir if the directory does not exist
     if not os.path.exists(dl_dir):
         os.makedirs(dl_dir)
@@ -62,6 +64,7 @@ def download_hdf_day(date, dl_dir, satellite='Both', dl_again=False):
         
         ### DOWNLOAD USING curl_dir
         query = 'curl_dir -fx .hdf {0} {1}'.format(dir_url, dl_dir)
+        print(query)
         os.system(query)
         
         #### DOWNLOAD USING URLLIB2 ONE AT A TIME
@@ -130,8 +133,8 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
     
     files = glob.glob('{0}*{1}*{2}.*.hdf'.format(dl_dir, sat_code, date_yj))
     
-    # Download?
-    if dl_again == True | len(files) <= 2:
+    # Download if files not downloaded (<100 files) or dl_again is True
+    if dl_again | (len(files) <= 100):
         download_hdf_day(date, dl_dir, satellite, dl_again)
         files = glob.glob('{0}*{1}*{2}.*.hdf'.format(dl_dir, sat_code, date_yj))
     
@@ -150,8 +153,11 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
     
     for f in files[::-1]:
         print('.', end='')
-        parser = h4Parse(f)
-        scaled = parser.get_scaled(fieldnames)
+        try:
+            parser = h4Parse(f)
+            scaled = parser.get_scaled(fieldnames)
+        except HDF4Error:
+            print('Issue loading file, skipping this file: {0}'.format(f))
         
         # Convert 'Scan_Start_Time' (seconds since 1993-01-01)
         # to hours since 00:00:00 on date

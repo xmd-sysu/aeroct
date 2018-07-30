@@ -40,7 +40,7 @@ def interpolate_aod(aeronet_df, wavelength):
         aod_c2 = find_aod(aod_c1, wl1, wavelength, angstrom_exps)
     
     else:
-        raise ValueError, 'Wavelength ({} nm) out of range.'.format(wavelength)
+        raise ValueError('Wavelength ({} nm) out of range.'.format(wavelength))
     
     return [aod_t2, aod_c2]
 

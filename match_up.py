@@ -13,7 +13,7 @@ import warnings
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy.spatial import cKDTree
-from data_frame import MatchFrame
+from aeroct.data_frame import MatchFrame
 
 div0 = lambda a, b: np.divide(a, b, out=np.zeros_like(a), where=(b != 0))
 
@@ -67,7 +67,7 @@ def getnn(d1, d2, r, k=5):
     return idx, d
 
 
-def sat_anet_match(df_s, df_a, match_time, match_rad, min_points=2):
+def sat_anet_match(df_s, df_a, match_time, match_rad, min_points=2, aod_type='total'):
     '''
     Return the AOD average, standard deviation, number of points, longitude, latitude
     and time for each matched pair. There is a match if a satellite data point is within
@@ -84,17 +84,28 @@ def sat_anet_match(df_s, df_a, match_time, match_rad, min_points=2):
         The radius for which data will be matched and averaged in degrees.
     min_points : int, optional (Default: 2)
         The minimum number of points from both df1 and df2 in a given matched data point
-        that is required to store that data point. 
+        that is required to store that data point.
+    aod_type : {'total', 'dust'}, optional (Default: 'total')
+        This determines which type of AOD data should be returned in the matched-up
+        data-frame.
     '''
-    if (df_s.aod[0] is None) | (df_a.aod[0] is None):
-        raise ValueError('Both data frames must have total AOD data.')
+    if aod_type == 'total':
+        if (df_s.aod[0] is None) | (df_a.aod[0] is None):
+            raise ValueError('Both data frames must have total AOD data.')
+    elif aod_type == 'dust':
+        if ((df_s.aod[1] is None) & (df_s.dust_filters is None)) | \
+           ((df_a.aod[1] is None) & (df_a.dust_filters is None)):
+            raise ValueError('Both data frames must have dust AOD data.')
+        
+    s_aod, s_lons, s_lats, s_real_times = df_s.get_data(aod_type)
+    a_aod, a_lons, a_lats, a_real_times = df_a.get_data(aod_type)
     
     K = 10  # Number of nearest neighbours to find of each site
     
     # Bin the time
     t_mult = 60 / match_time
-    s_time = np.rint(df_s.times * t_mult) / t_mult
-    a_time = np.rint(df_a.times * t_mult) / t_mult
+    s_time = np.rint(s_real_times * t_mult) / t_mult
+    a_time = np.rint(a_real_times * t_mult) / t_mult
     
     # Get the list of times included in both sets of data
     times = []
@@ -105,8 +116,8 @@ def sat_anet_match(df_s, df_a, match_time, match_rad, min_points=2):
     
     # AVERAGE AERONET SITES
     # This gives an array for the average AOD at each AERONET location for each time
-    # Index 1: time, index 2: location (ordered by np.unique(df_a.latitudes))
-    site_lats = np.unique(df_a.latitudes)[:, np.newaxis]
+    # Index 1: time, index 2: location (ordered by np.unique(a_lats))
+    site_lats = np.unique(a_lats)[:, np.newaxis]
     a_aod_avg = np.zeros((times.size, site_lats.size))
     a_aod_std = np.zeros((times.size, site_lats.size))
     a_aod_num = np.zeros((times.size, site_lats.size))
@@ -114,11 +125,11 @@ def sat_anet_match(df_s, df_a, match_time, match_rad, min_points=2):
     a_time_avg = np.zeros((times.size, site_lats.size))
     
     for i_t, t in enumerate(times):
-        a_lats_t = df_a.latitudes[a_time == t]
+        a_lats_t = a_lats[a_time == t]
         # from_site is a matrix of booleans, the 1st index: site, 2nd: data point
         from_site = (a_lats_t == site_lats.repeat(len(a_lats_t), axis=1))
-        site_aod = np.ma.masked_where(~from_site, df_a.aod[0][a_time == t] * from_site)
-        site_times = np.ma.masked_where(~from_site, df_a.times[a_time == t] * from_site)
+        site_aod = np.ma.masked_where(~from_site, a_aod[a_time == t] * from_site)
+        site_times = np.ma.masked_where(~from_site, a_real_times[a_time == t] * from_site)
         
         a_aod_avg[i_t] = np.mean(site_aod, axis=1)
         a_aod_std[i_t] = np.std(site_aod, axis=1)
@@ -129,12 +140,12 @@ def sat_anet_match(df_s, df_a, match_time, match_rad, min_points=2):
         # to the average of the standard deviations with more than one measurement
         a_aod_std[a_aod_num == 1] = np.mean(a_aod_std[a_aod_num > 1])
     
-    lats, i_loc = np.unique(df_a.latitudes, return_index=True)
-    lons = df_a.longitudes[i_loc]
+    lats, i_loc = np.unique(a_lats, return_index=True)
+    lons = a_lons[i_loc]
     
     # INCLUDE ONLY THE SITES WITH NEARBY SATELLITE DATA
     # For each aeronet location find the nearest neighbour
-    s_ll = np.array([df_s.longitudes, df_s.latitudes]).T
+    s_ll = np.array([s_lons, s_lats]).T
     a_ll = np.array([lons, lats]).T
     dist = getnn(s_ll, a_ll, match_rad, k=1)[1]
     
@@ -156,8 +167,8 @@ def sat_anet_match(df_s, df_a, match_time, match_rad, min_points=2):
     
     for i_t, t in enumerate(times):
         # Add nan to prevent out of array references from getnn()
-        s_aod_t = np.append(df_s.aod[0][s_time == t], np.nan)
-        s_real_times_t = np.append(df_s.times[s_time == t], np.nan)
+        s_aod_t = np.append(s_aod[s_time == t], np.nan)
+        s_real_times_t = np.append(s_real_times[s_time == t], np.nan)
         s_ll_t = s_ll[s_time == t]
         
         # For each site find the indices of the nearest 10 satellite points within
@@ -296,7 +307,7 @@ def model_anet_match(df_m, df_a, match_time, match_rad, min_points=2):
     
     for i_t, t in enumerate(times):
         # Add nan to prevent out of array references from getnn()
-        m_aod_t = np.append(m_aod[i_t], np.nan)
+        m_aod_t = np.append(m_aod[m_time==t], np.nan)
         
         # For each site find the indices of the nearest 10 satellite points within
         # match_rad using cKDTree.
@@ -488,7 +499,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist, min_points=2, limits=(-1
             lons[r], lats[r], times_arr[r]]
 
 
-def collocate(df1, df2, match_time=30, match_rad=25, min_points=2):
+def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='total'):
     '''
     This matches up elements in time and space from two data frames with the same date
     and wavelength. The outputs are new data frames containing the averaged AOD data
@@ -506,7 +517,10 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2):
         The radius for which data will be matched and averaged in kilometers.
     min_points : int, optional (Default: 2)
         The minimum number of points from both df1 and df2 in a given matched data point
-        that is required to store that data point. 
+        that is required to store that data point.
+    aod_type : {'total', 'dust'}, optional (Default: 'total')
+        For satellite-AERONET match-ups this determines which type of AOD data should be
+        returned in the matched-up data-frame.
     '''
     
     forecasts = (df1.forecast_time, df2.forecast_time)
@@ -524,11 +538,10 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2):
     if (df1.cube is None) & (df2.cube is None):
         
         if df2.data_set == 'aeronet':
-            # params  has the form [aod, std, num, lon, lat, time]
-            params = sat_anet_match(df1, df2, match_time, match_rad, min_points)
+            params = sat_anet_match(df1, df2, match_time, match_rad, min_points, aod_type)
             
         elif df1.data_set == 'aeronet':
-            params = sat_anet_match(df2, df1, match_time, match_rad, min_points)
+            params = sat_anet_match(df2, df1, match_time, match_rad, min_points, aod_type)
             param012 = [params[i][::-1] for i in range(3)]
             param3 = -1 * params[3]
             param012.append(param3)
@@ -536,8 +549,12 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2):
         
         [aod, std, num, time_diff, lon, lat, time] = param012
         
+        # Convert aod_type to int for the MatchFrame
+        if aod_type == 'total': aod_type = 0
+        elif aod_type == 'dust': aod_type = 1
+        
         return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
-                          match_rad, df1.wavelength, forecasts, data_sets, aod_type=0)
+                          match_rad, df1.wavelength, forecasts, data_sets, aod_type)
     
     # Model-AERONET match-up
     elif (df1.cube != None) & (df2.data_set == 'aeronet'):

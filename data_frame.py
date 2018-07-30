@@ -3,6 +3,8 @@ Created on Jun 22, 2018
 
 @author: savis
 
+TODO: Change aod_type from int to string (needs to be changed in match_up.py too)
+TODO: Add doc-strings to the data-frame classes. 
 '''
 from __future__ import print_function, division
 import os
@@ -15,10 +17,10 @@ try:
 except ModuleNotFoundError:
     import pickle
 
-import aeronet
-import modis
-import metum
-import utils
+from aeroct import aeronet
+from aeroct import modis
+from aeroct import metum
+from aeroct import utils
 
 SCRATCH_PATH = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
@@ -230,7 +232,7 @@ class DataFrame():
         elif type(self.data_set) == str:
             filename = '{0}_{1}_'.format(self.data_set, self.date.strftime('%Y%m%d'))
         else:
-            raise ValueError, 'data_set attribute invalid. Cannot create filename'
+            raise ValueError('data_set attribute invalid. Cannot create filename')
         
         i = 0
         while os.path.exists(dir_path + filename + str(i).zfill(2) + file_ext):
@@ -256,7 +258,7 @@ class MatchFrame():
 
     def __init__(self, data, data_std, data_num, time_diff, longitudes, latitudes, times,
                  date, match_time, match_rad, wavelength=550, forecast_times=(None, None),
-                 data_sets=(None, None), aod_type='total', **kw):
+                 data_sets=(None, None), aod_type=0, **kw):
         self.data       = data              # Averaged AOD data (Not flattend if cube != None)
         self.data_std   = data_std          # Averaged AOD data standard deviations
         self.data_num   = data_num          # Number of values that are averaged
@@ -283,8 +285,11 @@ class MatchFrame():
         self.RMS = np.sqrt(np.mean((self.data[1] - self.data[0])**2))   # Root mean square
         self.BIAS_MEAN = np.mean(self.data[1] - self.data[0])           # y - x mean
         self.BIAS_STD = np.std(self.data[1] - self.data[0])             # standard deviation
-        self.R_SLOPE, self.R_INTERCEPT, self.R = \
-            stats.linregress(self.data[0], self.data[1])[:3]            # Regression and Pearson's correlation coefficient
+        if self.data[0].size > 0:
+            self.R_SLOPE, self.R_INTERCEPT, self.R = \
+                stats.linregress(self.data[0], self.data[1])[:3]        # Regression and Pearson's correlation coefficient
+        else:
+            self.R_SLOPE, self.R_INTERCEPT, self.R = np.nan, np.nan, np.nan
     
     
     def datetimes(self):
@@ -335,7 +340,7 @@ class MatchFrame():
                 filename = '{0}-{1}_{2}_'.format(self.data_sets[1], self.data_sets[0],
                                               self.date.strftime('%Y%m%d'))
             else:
-                raise ValueError, 'data_sets attribute invalid. Cannot create filename'
+                raise ValueError('data_sets attribute invalid. Cannot create filename')
         
         i = 0
         while os.path.exists(dir_path + filename + str(i).zfill(2) + file_ext) & \
@@ -447,7 +452,7 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
         filepath = '{0}Unified_Model{1:03d}_{2}'.format(um_dl_dir, forecast_time, date)
         
         # Download data
-        utils.download_range(data_set, [date], dl_dir=dl_dir, dl_again=dl_again)
+        utils.download_range(data_set, [date], dl_dir, forecast_time, dl_again=dl_again)
         
         # Load the downloaded data
         with open(filepath, 'r') as r:
@@ -459,8 +464,7 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
         return DataFrame.from_cube(aod_cube, data_set)
     
     else:
-        raise ValueError, 'Invalid data set: {0}'.format(data_set)
-
+        raise ValueError('Invalid data set: {0}'.format(data_set))
 
 def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames'):
     '''
@@ -476,7 +480,7 @@ def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames'):
     if dir_path[-1] != '/': dir_path += '/'
     
     if not os.path.exists(dir_path + filename):
-        raise ValueError, 'File does not exist: {0}'.format(dir_path + filename)
+        raise ValueError('File does not exist: {0}'.format(dir_path + filename))
     
     print('Loading data frame(s) from {0}...'.format(dir_path + filename), end='')
     with open(dir_path + filename, 'r') as reader:
@@ -485,7 +489,7 @@ def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames'):
     return data_frame
 
 
-def concatenate_match_frames(df_list):
+def concatenate_data_frames(df_list):
     '''
     Concatenate a list of data frames over a period of time so that the average may be
     plotted on a map. A data frame of the input type (DataFrame or MatchFrame)
@@ -544,12 +548,44 @@ def concatenate_match_frames(df_list):
         return MatchFrame(data, data_std, data_num, time_diff, longitudes, latitudes, times,
                           dates, match_time, match_rad, wavelength, fc_times,
                           data_sets, aod_type)
+    
+    if isinstance(df_list[0], DataFrame):
+        
+        wavelength = df_list[0].wavelength
+        fc_time = df_list[0].forecast_time
+        data_set = df_list[0].data_set
+        
+        dates, aod0, aod1, longitudes, latitudes, times = [], [], [], [], [], []
+        
+        for df in df_list:
+            
+            # Check that the wavelengths and data-sets all match
+            if df.wavelength != df_list[0].wavelength:
+                raise ValueError('The list of data frames do not contain data for the same\
+                                  wavelength.')
+            if df.data_set != df_list[0].data_set:
+                raise ValueError('The list of data frames do not contain data from the\
+                                  same data-sets.')
+            
+            dates.append(df.date)
+            aod0.extend(df.aod[0].ravel())
+            aod1.extend(df.aod[1].ravel())
+            longitudes.extend(df.longitudes)
+            latitudes.extend(df.latitudes)
+            times.extend(times)
+        
+        aod = np.array([aod0, aod1])
+        longitudes, latitudes = np.array(longitudes), np.array(latitudes)
+        times = np.array(times)
+        
+        return DataFrame(aod, longitudes, latitudes, times, dates, wavelength, data_set,
+                         forecast_time=fc_time)
 
 
 
 if __name__=='__main__':
     days = np.arange(47)
-    initial_date = datetime(2018,06,01)
+    initial_date = datetime(2018, 6, 1)
     dt_list = [initial_date + timedelta(days=int(d)) for d in days]
     
     for date in dt_list:

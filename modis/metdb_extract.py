@@ -96,5 +96,5 @@ def retrieve_data_day_metdb(date, satellite='Both', minutes_err=0):
 
 
 if __name__ == '__main__':
-    data = retrieve_data_day_metdb(datetime(2018, 06, 23))
+    data = retrieve_data_day_metdb(datetime(2018, 6, 23))
     print(data)

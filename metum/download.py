@@ -29,28 +29,40 @@ def extract_from_mass(dates, fc_time, extract_dir):
     
     # Make the extract directory if it does not exist and create a new query file.
     os.system('mkdir -p {0}'.format(extract_dir))
-    os.system('rm -f {0}'.format(q_um))
-    os.system('touch {0}'.format(q_um))
     
-    # Extract UM aod PP file from MASS
-    # Update moose query file to extract AOD diagnostics at the given forecast hours:
+    # Ensure that there are a maximum of 80 days being downloaded at any time
+    dates_lists = []
+    i = 1
+    while True:
+        if len(dates) < (i * 81):
+            dates_lists.append(dates[((i-1) * 80):])
+            break
+        else:
+            dates_lists.append(dates[((i-1) * 80) : (i * 80)])
+        i += 1
     
-    with open(q_um, 'w') as file_writer:
-        for d in dates:
-            for h in hours:
-                hh = str(h).zfill(2)
-                file_writer.write('begin\n')
-                file_writer.write('  stash=2422\n')       # stash code for AOD
-                file_writer.write('  lbft={0}\n'.format(fc_time))     # forecast lead time (hours)
-                file_writer.write('  lbuser_5=3\n')       # pseudo level for wavelengths
-                file_writer.write('  min=[0..29]\n')      # 
-    #             file_writer.write('  pp_file="prods_op_gl-up_{0}_{1}*"\n'.format(d, hh)) # update runs
-                file_writer.write('  pp_file="prods_op_gl-mn_{0}_{1}*"\n'.format(d, hh)) # main run
-                file_writer.write('end\n\n')
-    
-    print('Extracting {0} day(s) of UM AOD files from {1} to location {2}'\
-          .format(len(dates), dates[0], extract_dir))
-    os.system('moo select {0} -f {1} {2}'.format(q_um, src_uri, extract_dir))
+    for dates in dates_lists:
+        
+        # Extract UM aod PP file from MASS
+        # Update moose query file to extract AOD diagnostics at the given forecast hours:
+        os.system('rm -f {0}'.format(q_um))
+        os.system('touch {0}'.format(q_um))
+        with open(q_um, 'w') as file_writer:
+            for d in dates:
+                for h in hours:
+                    hh = str(h).zfill(2)
+                    file_writer.write('begin\n')
+                    file_writer.write('  stash=2422\n')       # stash code for AOD
+                    file_writer.write('  lbft={0}\n'.format(fc_time))     # forecast lead time (hours)
+                    file_writer.write('  lbuser_5=3\n')       # pseudo level for wavelengths
+                    file_writer.write('  min=[0..29]\n')      # 
+        #             file_writer.write('  pp_file="prods_op_gl-up_{0}_{1}*"\n'.format(d, hh)) # update runs
+                    file_writer.write('  pp_file="prods_op_gl-mn_{0}_{1}*"\n'.format(d, hh)) # main run
+                    file_writer.write('end\n\n')
+        
+        print('Extracting {0} day(s) of UM AOD files from {1} to location {2}'\
+              .format(len(dates), dates[0], extract_dir))
+        os.system('moo select {0} -f {1} {2}'.format(q_um, src_uri, extract_dir))
 
 
 def download_data_day(date, forecast_time, out_path=None, dl_again=False):
@@ -70,8 +82,13 @@ def download_data_day(date, forecast_time, out_path=None, dl_again=False):
         Choose whether to extract the files if they any are detected in the output
         directory.
     '''
-    if datetime.strptime(date, '%Y%m%d') < datetime(2015,02,03):
+    if datetime.strptime(date, '%Y%m%d') < datetime(2015, 2, 3):
         raise ValueError('Date too early to currently handle. Restrict to after 2015-02-03.')
+    
+    if np.isin(np.arange(0,166,3), forecast_time).any():
+        forecast_time_str = str(forecast_time+3).zfill(3)
+    else:
+        raise ValueError('Invalid forecast_time. It must be a multiple of 3 between 0 and 165.')
     
     if out_path is None:
         out_path = ext_path
@@ -133,7 +150,8 @@ def download_data_range(dates, forecast_time=0, dl_dir=None, dl_again=False):
     if not dl_again:
         new_dates = []
         for date in dates:
-            files = glob.glob('{0}*{1}*_{2}.*'.format(dl_dir, date,
+            date_str = date.strftime('%Y%m%d')
+            files = glob.glob('{0}*{1}*_{2}.*'.format(dl_dir, date_str,
                                                       str(forecast_time+3).zfill(3)))
             if len(files) == 0:
                 new_dates.append(date)
@@ -148,11 +166,8 @@ def download_data_range(dates, forecast_time=0, dl_dir=None, dl_again=False):
 
 
 if __name__ == '__main__':
-    days = np.arange(41)
-    initial_date = datetime(year=2018, month=1, day=1)
+    days = np.arange(82)
+    initial_date = datetime(year=2017, month=2, day=1)
     dates = [initial_date + timedelta(days=int(d)) for d in days]
     
-    download_data_range(dates, forecast_time=24)
-    download_data_range(dates, forecast_time=30)
-    download_data_range(dates, forecast_time=36)
-    download_data_range(dates, forecast_time=42)
+    download_data_range(dates, forecast_time=0)

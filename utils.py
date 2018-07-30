@@ -12,14 +12,14 @@ try:
 except ModuleNotFoundError:
     import pickle
 import numpy as np
-import aeronet
-import modis
-import metum
+from aeroct import aeronet
+from aeroct import modis
+from aeroct import metum
 
 SCRATCH_PATH = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
 
-def datetime_list(initial_date, days, str_format=None):
+def datetime_list(initial_date, days=None, str_format=None):
     '''
     Return a list of datetimes (at 00:00:00) beginning at initial_date. The days argument
     is a list for which each element gives the number of days after initial date for each
@@ -30,11 +30,15 @@ def datetime_list(initial_date, days, str_format=None):
     Parameters:
     initial_date : str
         The date corresponding to days=0. Format is 'YYYYMMDD'.
-    days : integer array
-        The days after initial_date to return datetime objects.
+    days : int list, optional (Default: None)
+        The days after initial_date to return datetime objects. If None, then all dates
+        up until yesterday are returned.
     '''
+    if days is None:
+        days = (datetime.utcnow() - datetime.strptime(initial_date, '%Y%m%d')).days 
+    
     initial_date = datetime.strptime(initial_date, '%Y%m%d')
-    dt_list = [initial_date + timedelta(days=d) for d in days]
+    dt_list = [initial_date + timedelta(days=int(d)) for d in days]
     
     if str_format != None:
         dt_list = [dt.strftime(str_format) for dt in dt_list]
@@ -72,12 +76,12 @@ def download_range(data_set, date_list, dl_dir=SCRATCH_PATH+'downloads/',
     
     if data_set == 'aeronet':        
         dl_dir = dl_dir + 'AERONET/'
-    if data_set == 'metum':        
+    elif data_set == 'metum':        
         dl_dir = dl_dir + 'UM/'
     elif data_set[:5] == 'modis': 
         dl_dir = dl_dir + 'MODIS/'
     else:
-        raise ValueError, 'Invalid data set: {0}'.format(data_set)
+        raise ValueError('Invalid data set: {0}'.format(data_set))
     
     if data_set == 'modis':
         satellite = 'Both'

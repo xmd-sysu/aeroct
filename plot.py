@@ -10,13 +10,11 @@ The AOD match-up for a MatchFrame may be plotted on a scatter plot with scatter_
 Created on Jul 5, 2018
 
 @author: savis
-
-TODO: Move the MatchFrame scatter plot function to this module.
 '''
 import sys
 import numpy as np
 import matplotlib
-from matplotlib import pyplot as plt, cm, animation
+from matplotlib import pyplot as plt, cm, animation, widgets
 import cartopy.crs as ccrs
 from scipy.interpolate import griddata
 from scipy.interpolate.interpnd import _ndim_coords_from_arrays
@@ -27,9 +25,12 @@ import aeroct
 
 # Suppress warnings from importing iris.plot in python 2
 import warnings
-from matplotlib.cbook.deprecation import MatplotlibDeprecationWarning
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore", category=MatplotlibDeprecationWarning)
+try:
+    from matplotlib.cbook.deprecation import mplDeprecation
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=mplDeprecation)
+        from iris import plot as iplt, analysis
+except:
     from iris import plot as iplt, analysis
 
 
@@ -115,7 +116,7 @@ def plot_anet_site(df, site=0):
     '''
     
     if df.data_set != 'aeronet':
-        raise ValueError, 'Only AERONET data may be used in this function.'
+        raise ValueError('Only AERONET data may be used in this function.')
     
     lons, i_uniq, i_inv = np.unique(df.longitudes, return_index=True , return_inverse=True)
     lon = lons[site]
@@ -175,9 +176,9 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
 
     '''
     
-    # Convert a list of 
+    # Convert a list of match frames to a single match frame that may be plotted
     if isinstance(df, list):
-        df = aeroct.concatenate_match_frames(df)
+        df = aeroct.concatenate_data_frames(df)
         date = '{0} to {1}'.format(df.date[0].date(), df.date[-1].date())
     else:
         date = df.date.date()
@@ -330,7 +331,121 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
         return fig
 
 
-def scatter_plot(df, stats=True, show=True, error=True, hm_threshold=500, **kwargs):
+def plot_map_comparison(mf, lat=(-90,90), lon=(-180,180), show=True, grid_size=0.5,
+                        vmin=None, vmax=None):
+    '''
+    '''
+    # If a list of MatchFrames is provided convert these into a single MatchFrame to plot
+    if isinstance(mf, list):
+        mf = aeroct.concatenate_data_frames(mf)
+        date = '{0} to {1}'.format(mf.date[0].date(), mf.date[-1].date())
+    else:
+        date = mf.date.date()
+    
+    lon_mid = (lon[0] + lon[1]) / 2
+    
+    # Figure layout
+    fig = plt.figure()
+    ax = plt.axes([0.1, 0.15, 0.75, 0.75], projection=ccrs.PlateCarree())
+    slider_ax = plt.axes([0.1, 0.05, 0.75, 0.03])
+    colorbar_ax = plt.axes([0.88, 0.15, 0.03, 0.75])
+    
+    ax.set_xlim(lon)
+    ax.set_ylim(lat)
+    
+    cmap = cm.get_cmap('Oranges')
+    
+    # Find the data within the given longitude and latitude bounds
+    in_bounds = (mf.longitudes > lon[0]) & (mf.longitudes < lon[1]) & \
+                (mf.latitudes > lat[0]) & (mf.latitudes < lat[1])
+    lons = mf.longitudes[in_bounds]
+    lats = mf.latitudes[in_bounds]
+    
+    data1 = mf.data[0, in_bounds]
+    data2 = mf.data[1, in_bounds]
+    plt.title('AOD difference (mean) : {0} - {1} for {2}'\
+              .format(mf.names[1], mf.names[0], date))
+    
+    # If AERONET is included plot the sites on a map
+    if np.any([mf.data_sets[i] == 'aeronet' for i in [0,1]]):
+        # Get the list of data points at each location
+        site_lons, i_site = np.unique(lons, return_index=True)
+        site_lats = lats[i_site]
+        in_sites = site_lons[:, np.newaxis] == lons
+        # Average the AOD at each site and take std
+        site_data1_avg = np.mean(data1 * in_sites, axis=1)
+        site_data2_avg = np.mean(data2 * in_sites, axis=1)
+        
+        # Plot the initial scatterplots
+        im = ax.scatter(site_lons, site_lats, c=site_data1_avg, s=50, cmap=cmap,
+                         vmin=vmin, vmax=vmax)
+        
+        site_lons2 = site_lons[site_lons > lon_mid]
+        site_lats2 = site_lats[site_lons > lon_mid]
+        site_data2 = site_data2_avg[site_lons > lon_mid]
+        sc = ax.scatter(site_lons2, site_lats2, c=site_data2, s=50, cmap=cmap,
+                         vmin=vmin, vmax=vmax)
+        
+        def update(val):
+            lon_var = slide_lon.val
+            
+            show_site2 = site_lons > lon_var
+            site_lons2 = site_lons[show_site2]
+            site_lats2 = site_lats[show_site2]
+            site_data2 = site_data2_avg[show_site2]
+            site_lons1 = site_lons[~show_site2]
+            site_lats1 = site_lats[~show_site2]
+            site_data1 = site_data2_avg[~show_site2]
+            
+            # Plot the updated scatter plots
+            if site_data1.size > 0:
+                ax.scatter(site_lons1, site_lats1, c=site_data1, s=50, cmap=cmap,
+                         vmin=vmin, vmax=vmax)
+            if site_data1.size > 1:
+                ax.scatter(site_lons2, site_lats2, c=site_data2, s=50, cmap=cmap,
+                         vmin=vmin, vmax=vmax)
+            
+            vline.set_xdata([lon_var, lon_var])
+            fig.canvas.draw_idle()
+    
+    # OTHERWISE PLOT A GRID
+    else:
+        # Using scipy.interpolate.griddata
+        # First get the axes
+        grid = np.mgrid[(lon[0] + grid_size/2) : lon[1] : grid_size,
+                        (lat[0] + grid_size/2) : lat[1] : grid_size]
+        ll = zip(lons, lats)
+        
+        data_grid = griddata(ll, data1, tuple(grid), method='linear')
+        
+        # Mask grid data where there are no nearby points. Firstly create kd-tree
+        THRESHOLD = grid_size   # Maximum distance to look for nearby points
+        tree = cKDTree(ll)
+        xi = _ndim_coords_from_arrays(tuple(grid))
+        dists = tree.query(xi)[0]
+        # Copy original result but mask missing values with NaNs
+        data_grid[dists > THRESHOLD] = np.nan
+        
+        plt.pcolormesh(grid[0], grid[1], data_grid, cmap=cmap,
+                       vmin=vmin, vmax=vmax)
+    
+    # Slider
+    slide_step = (lon[1] - lon[0]) / 20
+    slide_lon = widgets.Slider(slider_ax, 'Move ->', lon[0], lon[1], valinit=lon_mid,
+                               valstep=slide_step, facecolor='white')
+    vline, = ax.plot([lon_mid, lon_mid], ax.get_ylim(), c='k', linewidth=5)
+    slide_lon.on_changed(update)
+    
+    ax.coastlines()
+    plt.colorbar(im, cax=colorbar_ax)
+    if show == True:
+        plt.show()
+        return
+    else:
+        return fig
+
+
+def scatterplot(df, stats=True, log_scale=True, show=True, error=True, hm_threshold=300, **kwargs):
     '''
     This is used to plot AOD data from two sources which have been matched-up on a
     scatter plot. The function returns the figure if show=True.
@@ -339,18 +454,27 @@ def scatter_plot(df, stats=True, show=True, error=True, hm_threshold=500, **kwar
     df : AeroCT MatchFrame
         The data frame containing collocated data for a day.
     stats : bool, optional (Default: True)
-        Choose whether to show statistics on the plot.    
+        Choose whether to show statistics on the plot.
+    log_scale: bool, optional (Default: True)
+        Choose whether to plot the data on a log scale (if so anything below 1e-4 is not
+        displayed).
     show : bool, optional (Default: True)
         If True, the plot is shown otherwise the figure is passed as an output.    
     error : bool, optional (Default: True)
         If True, error bars for the standard deviations are included on the plot.
-    hm_threshold : int, optional (Default: 500)
+    hm_threshold : int, optional (Default: 300)
         The threshold of number of data points above which a heat map will be plotted
         instead of a scatter plot.
     **kwargs : optional
         Arguments for the style of the scatter plot. By default c='r', marker='o',
         linestyle='None' and, if error=True, ecolor='gray'.
     '''
+    if isinstance(df, list):
+        df = aeroct.concatenate_data_frames(df)
+        date_str = '{0} to {1}'.format(df.date[0].date(), df.date[-1].date())
+    else:
+        date_str = '{0}'.format(df.date[0].date())
+    
     if (df.__class__.__name__ != 'MatchFrame') | (len(df.data_sets) != 2):
         raise ValueError('The data frame is unrecognised. It must be collocated data \
                          from two data sets.')
@@ -376,9 +500,15 @@ def scatter_plot(df, stats=True, show=True, error=True, hm_threshold=500, **kwar
     ax_x = fig.add_axes([x0, y1 + height + 0.01, width, height2], sharex=ax)
     ax_y = fig.add_axes([x0 + width + 0.01, y1, width2, height], sharey=ax)
     
-    # Histograms
-    ax_x.hist(df.data[0], bins=50, color='k')
-    ax_y.hist(df.data[1], bins=50, color='k', orientation='horizontal')
+    # Grid cells for heat-map / histograms
+    x_min, x_max = np.min(df.data[0]), np.max(df.data[0])
+    y_min, y_max = np.min(df.data[1]), np.max(df.data[1])
+    if log_scale:
+        x_grid = 10 ** np.linspace(-4, np.log10(x_max), 101)
+        y_grid = 10 ** np.linspace(-4, np.log10(y_max), 101)
+    else:
+        x_grid = np.linspace(x_min, x_max, 101)
+        y_grid = np.linspace(y_min, y_max, 101)
     
     # Plot a scatter plot if there are fewer data points than hm_threshold
     if not heatmap:
@@ -392,13 +522,8 @@ def scatter_plot(df, stats=True, show=True, error=True, hm_threshold=500, **kwar
         else:
             ax.plot(df.data[0], df.data[1], **kwargs)
     
-    # Otherwise plot a heatmap
+    # Otherwise plot a heat-map
     else:
-        x_min, x_max = np.min(df.data[0]), np.max(df.data[0])
-        y_min, y_max = np.min(df.data[1]), np.max(df.data[1])
-        x_grid = np.linspace(x_min, x_max, 101)
-        y_grid = np.linspace(y_min, y_max, 101)
-        
         # Find the number of points in each grid cell and mask those with none
         heatmap_grid = np.histogram2d(df.data[0], df.data[1], [x_grid, y_grid])[0]
         heatmap_grid = np.ma.masked_where(heatmap_grid==0, heatmap_grid)
@@ -406,43 +531,57 @@ def scatter_plot(df, stats=True, show=True, error=True, hm_threshold=500, **kwar
         im = ax.pcolormesh(x_grid, y_grid, heatmap_grid.T, cmap='CMRmap')
         plt.colorbar(im, cax=cax, orientation='horizontal')
     
-    ax.autoscale(False)
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
     
-    # Regression line
-    x = np.array([0, 10])
+    x = np.linspace(1e-4, 10, 101)
     y = df.R_INTERCEPT + x * df.R_SLOPE
-    ax.plot(x, y, 'g:', lw=2, label='Regression')
-    
-    # y = x line
-    ax.plot([0, 10], [0, 10], c='gray', ls='--', lw=2, label='y = x')
+    ax.plot(x, y, 'g-.', lw=2, label='Regression') # Regression line
+    ax.plot(x, x, c='gray', ls='--', lw=2, label='y = x') # y = x line
     
     # Title, axes, and legend
-    title = 'Collocated AOD comparison on {0}'.format(df.date.date())
+    if df.aod_type == 0:
+        aod_str = 'total AOD'
+    elif df.aod_type == 1:
+        aod_str = 'dust AOD'
+    title = 'Collocated {0} comparison for {1}'.format(aod_str, date_str)
     fig.text(0.5, (y1 + height + height2 + 0.03), title, ha='center', fontsize=14)
     ax.legend(loc=4)
     ax.set_xlabel('{0} AOD'.format(df.names[0]))
     ax.set_ylabel('{0} AOD'.format(df.names[1]))
-#     ax.loglog()
+    
+    if log_scale:
+        ax.loglog()
+        ax.set_xlim((1e-4, xlim[1]))
+        ax.set_ylim((1e-4, ylim[1]))
+    else:
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
     
     # Ticks
     ax.tick_params(direction='in', bottom=True, top=True, left=True, right=True)
     ax_x.tick_params(direction='in', bottom=True, top=True, left=True, right=True, labelbottom=False)
     ax_y.tick_params(direction='in', bottom=True, top=True, left=True, right=True, labelleft=False)
     
+    # Histograms
+    ax_x.hist(df.data[0], bins=x_grid, color='k')
+    ax_y.hist(df.data[1], bins=y_grid, color='k', orientation='horizontal')
+    
     # Stats
     if stats == True:
+        box = dict(facecolor='w', edgecolor='w', pad=-0.75)
         rms_str = 'RMS: {:.02f}'.format(df.RMS)
-        plt.text(0.03, 0.94, rms_str, fontsize=12, transform=ax.transAxes)
+        plt.text(0.03, 0.94, rms_str, fontsize=12, transform=ax.transAxes, bbox=box)
         bias_mean_str = 'Bias mean: {:.02f}'.format(df.BIAS_MEAN)
-        plt.text(0.03, 0.88, bias_mean_str, fontsize=12, transform=ax.transAxes)
+        plt.text(0.03, 0.88, bias_mean_str, fontsize=12, transform=ax.transAxes, bbox=box)
         bias_std_str = 'Bias std: {:.02f}'.format(df.BIAS_STD)
-        plt.text(0.03, 0.82, bias_std_str, fontsize=12, transform=ax.transAxes)
+        plt.text(0.03, 0.82, bias_std_str, fontsize=12, transform=ax.transAxes, bbox=box)
         r_str = 'Pearson R: {:.02f}'.format(df.R)
-        plt.text(0.35, 0.94, r_str, fontsize=12, transform=ax.transAxes)
+        plt.text(0.35, 0.94, r_str, fontsize=12, transform=ax.transAxes, bbox=box)
         slope_str = 'Slope: {:.02f}'.format(df.R_SLOPE)
-        plt.text(0.35, 0.88, slope_str, fontsize=12, transform=ax.transAxes)
+        plt.text(0.35, 0.88, slope_str, fontsize=12, transform=ax.transAxes, bbox=box)
         intercept_str = 'Intercept: {:.02f}'.format(df.R_INTERCEPT)
-        plt.text(0.35, 0.82, intercept_str, fontsize=12, transform=ax.transAxes)
+        plt.text(0.35, 0.82, intercept_str, fontsize=12, transform=ax.transAxes, bbox=box)
     
     if show == True:
         plt.show()

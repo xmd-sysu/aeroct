@@ -12,6 +12,7 @@ import os
 import iris
 import numpy as np
 from datetime import datetime, timedelta
+from iris.experimental.equalise_cubes import equalise_attributes
 
 scratch_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/downloads/UM/pp/'
 wavelength = {3 : 550}  # Wavelengths given the pseudo-level
@@ -32,11 +33,10 @@ def load_files(date, forecast_time, src_path=None):
     if src_path is None:
         src_path=scratch_path
     
-    if np.isin(np.arange(0,25,3), forecast_time).any():
+    if np.isin(np.arange(0,166,3), forecast_time).any():
         forecast_time_str = str(forecast_time+3).zfill(3)
     else:
-        print('Invalid forecast_time. It must be one of 0, 3, 6, 9, 12, 15, 18, 21, 24.')
-        return
+        raise ValueError('Invalid forecast_time. It must be a multiple of 3 between 0 and 165.')
     
     # Get the dates of the two files containing data during 'date'
     days_before = int((forecast_time - 6) / 24)
@@ -47,10 +47,23 @@ def load_files(date, forecast_time, src_path=None):
     
     # This loads files from src_path with filenames containing '*YYYYMMDD*_###.*' where
     # ### is the forecast time plus 3, ie. 003 is the analysis time.
-    aod_cube1 = iris.load_cube('{0}*{1}*_{2}.*'.format(src_path, date1, forecast_time_str))
-    aod_cube2 = iris.load_cube('{0}*{1}*_{2}.*'.format(src_path, date2, forecast_time_str))
+    aod_cube1 = iris.load_raw('{0}*{1}*_{2}.*'.format(src_path, date1, forecast_time_str))
+    aod_cube2 = iris.load_raw('{0}*{1}*_{2}.*'.format(src_path, date2, forecast_time_str))
     
+    # Equalise attributes to solve issues with merging (eg. mismatching UM version)
+    equalise_attributes(aod_cube1)
+    equalise_attributes(aod_cube2)
+    aod_cube1 = aod_cube1.merge_cube()
+    aod_cube2 = aod_cube2.merge_cube()
+    
+    # Concatenate the two days into a single cube
     cube_list = iris.cube.CubeList([aod_cube1, aod_cube2])
+    if np.any(np.array([cube.coord('forecast_period').points.size for cube in cube_list]) > 1): 
+        for cube in cube_list:
+            cube.remove_coord('forecast_period')
+            forecast_coord = iris.coords.DimCoord(forecast_time, standard_name='forecast_period', units='hours')
+            cube.add_aux_coord(forecast_coord)
+    equalise_attributes(cube_list)
     aod_cube = cube_list.concatenate_cube()
     return aod_cube
 
