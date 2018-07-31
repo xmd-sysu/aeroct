@@ -17,6 +17,8 @@ try:
 except ModuleNotFoundError:
     import pickle
 
+import sys
+sys.path.append('/home/h01/savis/workspace/summer')
 from aeroct import aeronet
 from aeroct import modis
 from aeroct import metum
@@ -62,11 +64,13 @@ class DataFrame():
         longitudes = longitudes.copy()
         longitudes[longitudes > 180] -= 360
         
+        # Data and axes
         self.aod        = aod                       # AOD data [Total, Dust])
         self.longitudes = longitudes                # [degrees]
         self.latitudes  = latitudes                 # [degrees]
         self.times      = times                     # [hours since 00:00:00 on date]
         
+        # Meta-data
         self.date       = date                      # (datetime)
         self.wavelength = wavelength                # [nm]
         self.data_set   = data_set                  # The name of the data set
@@ -86,6 +90,8 @@ class DataFrame():
         
         # Contains iris cube if from_cube() used
         self.cube = kw.setdefault('cube', None)
+        
+        self.additional_data = kw.setdefault('additional_data', [])
     
     
     @classmethod
@@ -244,6 +250,79 @@ class DataFrame():
         with open(filepath, 'w') as writer:
             pickle.dump(self, writer, -1)
         print('Data frame saved successfully to {0}'.format(filepath))
+    
+    
+    def extract(self, lon_bounds=(-180, 180), lat_bounds=(-90, 90), time_bounds=(0, 24)):
+        '''
+        Return a new DataFrame only containing the data within the given bounds (inclusive).
+        
+        Parameters:
+        lon_bounds : float tuple, optional (Default: (-180, 180))
+            The bounds on the longitude.
+        lat_bounds : float tuple, optional (Default: (-90, 90))
+            The bounds on the latitude.
+        time_bounds : float tuple, optional (Default: (0, 24))
+            The bounds on the time (hours).
+        '''
+        in_lon = (self.longitudes >= lon_bounds[0]) & (self.longitudes <= lon_bounds[1])
+        in_lat = (self.latitudes >= lat_bounds[0]) & (self.latitudes <= lat_bounds[1])
+        in_time = (self.times >= time_bounds[0]) & (self.times <= time_bounds[1])
+        in_bounds = (in_lon & in_lat & in_time)
+        
+        if self.cube is not None:
+            lons = self.longitudes[in_lon]
+            lats = self.latitudes[in_lat]
+            times = self.times[in_time]
+            cube = self.cube[in_time, in_lat, in_lon]
+            
+            if self.aod[0] is not None:
+                aod0 = self.aod[0][in_time, in_lat, in_lon]
+            else:
+                aod0 = None
+            if self.aod[1] is not None:
+                aod1 = self.aod[1][in_time, in_lat, in_lon]
+            else:
+                aod1 = None
+            
+            if self.dust_filters is not None:
+                dust_filters = self.dust_filters.copy()
+                for key in dust_filters.keys():
+                    dust_filters[key] = dust_filters[key][in_time, in_lat, in_lon]
+            else:
+                dust_filters = None
+        
+        else:
+            lons = self.longitudes[in_bounds]
+            lats = self.latitudes[in_bounds]
+            times = self.times[in_bounds]
+            cube = None
+            
+            if self.aod[0] is not None:
+                aod0 = self.aod[0][in_bounds]
+            else:
+                aod0 = None
+            if self.aod[1] is not None:
+                aod1 = self.aod[1][in_bounds]
+            else:
+                aod1 = None
+            
+            if self.dust_filters is not None:
+                dust_filters = self.dust_filters.copy()
+                for key in dust_filters.keys():
+                    dust_filters[key] = dust_filters[key][in_bounds]
+            else:
+                dust_filters = None
+        
+        ext_description = 'Extraction for lon: {0}, lat: {1}, time: {2}'\
+                          .format(lon_bounds, lat_bounds, time_bounds)
+        if hasattr(self, 'additional_data'):
+            additional_data = self.additional_data.append(ext_description)
+        else:
+            additional_data = [ext_description]
+        
+        return DataFrame([aod0, aod1], lons, lats, times, self.date, self.wavelength,
+                         self.data_set, forecast_time=self.forecast_time, cube=cube,
+                         dust_filters=dust_filters, additional_data=additional_data)
 
 
 
@@ -259,6 +338,7 @@ class MatchFrame():
     def __init__(self, data, data_std, data_num, time_diff, longitudes, latitudes, times,
                  date, match_time, match_rad, wavelength=550, forecast_times=(None, None),
                  data_sets=(None, None), aod_type=0, **kw):
+        # Data and axes
         self.data       = data              # Averaged AOD data (Not flattend if cube != None)
         self.data_std   = data_std          # Averaged AOD data standard deviations
         self.data_num   = data_num          # Number of values that are averaged
@@ -267,6 +347,7 @@ class MatchFrame():
         self.latitudes  = latitudes         # [degrees]
         self.times      = times             # [hours since 00:00:00 on date]
         
+        # Meta-data
         self.date           = date            # (datetime)
         self.match_radius   = match_rad       # Maximum spacial difference between collocated points
         self.match_time     = match_time      # Maximum time difference between collocated points
@@ -280,6 +361,7 @@ class MatchFrame():
             self.names[i] = print_name[data_sets[i]]
             if self.forecast_times[i] is not None:
                 self.names[i] += ' (Lead time: {0} hours)'.format(int(self.forecast_times[i]))
+        self.additional_data = kw.setdefault('additional_data', [])
         
         # Stats
         self.RMS = np.sqrt(np.mean((self.data[1] - self.data[0])**2))   # Root mean square
@@ -359,6 +441,55 @@ class MatchFrame():
         print('Data frame saved successfully to {0}'.format(filepath))
         
         return filepath
+    
+    def extract(self, lon_bounds=(-180, 180), lat_bounds=(-90, 90), time_bounds=(0, 24)):
+        '''
+        Return a new MatchFrame only containing the data within the given bounds (inclusive).
+        
+        Parameters:
+        lon_bounds : float tuple, optional (Default: (-180, 180))
+            The bounds on the longitude.
+        lat_bounds : float tuple, optional (Default: (-90, 90))
+            The bounds on the latitude.
+        time_bounds : float tuple, optional (Default: (0, 24))
+            The bounds on the time (hours).
+        '''
+        in_lon = (self.longitudes >= lon_bounds[0]) & (self.longitudes <= lon_bounds[1])
+        in_lat = (self.latitudes >= lat_bounds[0]) & (self.latitudes <= lat_bounds[1])
+        in_time = (self.times >= time_bounds[0]) & (self.times <= time_bounds[1])
+        in_bounds = (in_lon & in_lat & in_time)
+        
+        if self.cube is not None:
+            lons = self.longitudes[in_lon]
+            lats = self.latitudes[in_lat]
+            times = self.times[in_time]
+            data = self.data[:, in_time, in_lat, in_lon]
+            data_std = self.data_std[:, in_time, in_lat, in_lon]
+            data_num = self.dat_num[:, in_time, in_lat, in_lon]
+            time_diff = self.time_diff[in_time, in_lat, in_lon]
+            cube = self.cube[in_time, in_lat, in_lon]
+        
+        else:
+            lons = self.longitudes[in_bounds]
+            lats = self.latitudes[in_bounds]
+            times = self.times[in_bounds]
+            data = self.data[:, in_bounds]
+            data_std = self.data_std[:, in_bounds]
+            data_num = self.data_num[:, in_bounds]
+            time_diff = self.time_diff[in_bounds]
+            cube = None
+        
+        ext_description = 'Extraction for lon: {0}, lat: {1}, time: {2}'\
+                          .format(lon_bounds, lat_bounds, time_bounds)
+        if hasattr(self, 'additional_data'):
+            additional_data = self.additional_data.append(ext_description)
+        else:
+            additional_data = [ext_description]
+        
+        return MatchFrame(data, data_std, data_num, time_diff, lons, lats, times,
+                          self.date, self.match_time, self.match_radius, self.wavelength,
+                          self.forecast_times, self.data_sets, self.aod_type, cube=cube,
+                          additional_data=additional_data)
 
 
 
