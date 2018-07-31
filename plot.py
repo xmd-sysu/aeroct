@@ -135,7 +135,7 @@ def plot_aod_hist(df, aod_type=None):
         if (aod_type is None) | (aod_type == 'dust'):
             aod = df.aod[1]
     else:
-        aod = df.get_data(aod_type)
+        aod = df.get_data(aod_type)[0]
     
     plt.hist(aod, bins=20)
     plt.show()
@@ -478,7 +478,11 @@ def scatterplot(df, stats=True, log_scale=True, show=True, error=True, hm_thresh
     if (df.__class__.__name__ != 'MatchFrame') | (len(df.data_sets) != 2):
         raise ValueError('The data frame is unrecognised. It must be collocated data \
                          from two data sets.')
-        
+    
+    
+    xlim = kwargs.setdefault('xlim', (None, None))
+    ylim = kwargs.setdefault('ylim', (None, None))
+    
     # Plot a heat map if there are more data points than hm_threshold
     heatmap = (df.data[0].size > hm_threshold)
     
@@ -500,15 +504,28 @@ def scatterplot(df, stats=True, log_scale=True, show=True, error=True, hm_thresh
     ax_x = fig.add_axes([x0, y1 + height + 0.01, width, height2], sharex=ax)
     ax_y = fig.add_axes([x0 + width + 0.01, y1, width2, height], sharey=ax)
     
-    # Grid cells for heat-map / histograms
-    x_min, x_max = np.min(df.data[0]), np.max(df.data[0])
-    y_min, y_max = np.min(df.data[1]), np.max(df.data[1])
-    if log_scale:
-        x_grid = 10 ** np.linspace(-4, np.log10(x_max), 101)
-        y_grid = 10 ** np.linspace(-4, np.log10(y_max), 101)
+    # Grid cell boundaries for heat-map / histograms
+    if xlim[0] is None:
+        xmax = np.max(df.data[0])
+        xmin = 1e-4 if (np.min(df.data[0]) < 1e-4) else np.min(df.data[0])
     else:
-        x_grid = np.linspace(x_min, x_max, 101)
-        y_grid = np.linspace(y_min, y_max, 101)
+        xmax = xlim[1]
+        xmin = 1e-4 if (xlim[0] < 1e-4) else xlim[0]
+    
+    if ylim[0] is None:
+        ymax = np.max(df.data[1])
+        ymin = 1e-4 if (np.min(df.data[1]) < 1e-4) else np.min(df.data[1])
+    else:
+        ymax = ylim[1]
+        ymin = 1e-4 if (ylim[0] < 1e-4) else ylim[0]
+    
+    # Grid cells
+    if log_scale:
+        x_grid = 10 ** np.linspace(np.log10(xmin), np.log10(xmax), 101)
+        y_grid = 10 ** np.linspace(np.log10(ymin), np.log10(ymax), 101)
+    else:
+        x_grid = np.linspace(xmin, xmax, 101)
+        y_grid = np.linspace(ymin, ymax, 101)
     
     # Plot a scatter plot if there are fewer data points than hm_threshold
     if not heatmap:
@@ -531,13 +548,26 @@ def scatterplot(df, stats=True, log_scale=True, show=True, error=True, hm_thresh
         im = ax.pcolormesh(x_grid, y_grid, heatmap_grid.T, cmap='CMRmap')
         plt.colorbar(im, cax=cax, orientation='horizontal')
     
-    xlim = ax.get_xlim()
-    ylim = ax.get_ylim()
+    # Assign automatic limits now so that they do not fit to the lines
+    if xlim[0] is None:
+        xlim = ax.get_xlim()
+    if ylim[0] is None:
+        ylim = ax.get_ylim()
     
     x = np.linspace(1e-4, 10, 101)
     y = df.R_INTERCEPT + x * df.R_SLOPE
     ax.plot(x, y, 'g-.', lw=2, label='Regression') # Regression line
     ax.plot(x, x, c='gray', ls='--', lw=2, label='y = x') # y = x line
+    
+    # AOD source for dust
+    if df.aod_type == 1:
+        aod_src = {'metum' : '',
+                   'modis' : '(Filtered total AOD)',
+                   'modis_t' : '(Filtered total AOD)',
+                   'modis_a' : '(Filtered total AOD)',
+                   'aeronet' : '(SDA coarse mode)'}
+    else:
+        aod_src = {'metum' : '', 'modis': '', 'modis_t' : '', 'modis_a' : '', 'aeronet': ''}
     
     # Title, axes, and legend
     if df.aod_type == 0:
@@ -547,16 +577,15 @@ def scatterplot(df, stats=True, log_scale=True, show=True, error=True, hm_thresh
     title = 'Collocated {0} comparison for {1}'.format(aod_str, date_str)
     fig.text(0.5, (y1 + height + height2 + 0.03), title, ha='center', fontsize=14)
     ax.legend(loc=4)
-    ax.set_xlabel('{0} AOD'.format(df.names[0]))
-    ax.set_ylabel('{0} AOD'.format(df.names[1]))
+    ax.set_xlabel('{0} AOD {1}'.format(df.names[0], aod_src[df.data_sets[0]]))
+    ax.set_ylabel('{0} AOD {1}'.format(df.names[1], aod_src[df.data_sets[1]]))
     
     if log_scale:
         ax.loglog()
-        ax.set_xlim((1e-4, xlim[1]))
-        ax.set_ylim((1e-4, ylim[1]))
-    else:
-        ax.set_xlim(xlim)
-        ax.set_ylim(ylim)
+        xlim = (1e-4, xlim[1]) if (xlim[0] <= 1e-4) else xlim
+        ylim = (1e-4, ylim[1]) if (ylim[0] <= 1e-4) else ylim
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
     
     # Ticks
     ax.tick_params(direction='in', bottom=True, top=True, left=True, right=True)
