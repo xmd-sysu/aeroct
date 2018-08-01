@@ -34,10 +34,15 @@ def interpolate_aod(aeronet_df, wavelength):
         # Use the angstrom exponent given for 500nm
         aod_t1 = np.array(aeronet_df['Total_AOD_500nm[tau_a]'])
         aod_c1 = np.array(aeronet_df['Coarse_Mode_AOD_500nm[tau_c]'])
-        angstrom_exps = np.array(aeronet_df['Angstrom_Exponent(AE)-Total_500nm[alpha]'])
+        alpha = np.array(aeronet_df['Angstrom_Exponent(AE)-Total_500nm[alpha]'])
+        alpha_f = np.array(aeronet_df['AE-Fine_Mode_500nm[alpha_f]'])
+        fmf = np.array(aeronet_df['FineModeFraction_500nm[eta]'])
+        alpha_c = np.divide((alpha - alpha_f*fmf), (1 - fmf),
+                    out=np.zeros_like(alpha), where=(fmf!=1))
+        
         wl1 = 500
-        aod_t2 = find_aod(aod_t1, wl1, wavelength, angstrom_exps)
-        aod_c2 = find_aod(aod_c1, wl1, wavelength, angstrom_exps)
+        aod_t2 = find_aod(aod_t1, wl1, wavelength, alpha)
+        aod_c2 = find_aod(aod_c1, wl1, wavelength, alpha_c)
     
     else:
         raise ValueError('Wavelength ({} nm) out of range.'.format(wavelength))

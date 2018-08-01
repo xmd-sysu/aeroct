@@ -6,12 +6,12 @@ Created on Jul 3, 2018
 
 @author: savis
 '''
+from __future__ import division
 import os
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
-sys.path.append('/home/h01/savis/workspace/summer')
 import aeroct
 
 scratch_path = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'

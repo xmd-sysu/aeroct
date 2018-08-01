@@ -102,9 +102,13 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
     '''
     This function can be used to download MODIS data for a day. A dictionary is returned
     containing 1D arrays with the following fields:
-    'LNGT': longitudes, 'LTTD': latitudes, 'AOD_NM550' : AOD,
-    'ARSL_TYPE': aerosol type (dust=1), 'ARSL_RTVL_CNFC_FLAG': quality flag (0
-    'YEAR', 'MNTH', 'DAY', 'HOUR', 'MINT': times
+    'LNGT': longitudes,
+    'LTTD': latitudes,
+    'AOD_NM550' : AOD,
+    'ARSL_TYPE': aerosol type (dust=1),
+    'ARSL_RTVL_CNFC_FLAG': quality flag (0
+    'YEAR', 'MNTH', 'DAY', 'HOUR', 'MINT': times,
+    'AE_LAND', 'SSA_LAND', 'FM_FRC', 'FM_FRC_OCEAN', 'AE_OCEAN'
     
     Parameters:
     date : str 
@@ -140,12 +144,13 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
     
     # Get the fields from the files and concatenate them in lists
     lon, lat, time, asl_type, aod, sat_idny = [], [], [], [], [], []
-    ae_land, ssa_land, fm_frc_ocean, ae_ocean = [], [], [], []
+    ae_land, ssa_land, fmf_land, fmf_ocean, ae_ocean = [], [], [], [], []
     fieldnames = ['Longitude', 'Latitude', 'Scan_Start_Time', 'Aerosol_Type_Land', 
                   'AOD_550_Dark_Target_Deep_Blue_Combined',
                   'AOD_550_Dark_Target_Deep_Blue_Combined_QA_Flag',
                   'Deep_Blue_Angstrom_Exponent_Land',
                   'Deep_Blue_Spectral_Single_Scattering_Albedo_Land',
+                  'Optical_Depth_Ratio_Small_Land',
                   'Optical_Depth_Ratio_Small_Ocean_0.55micron',
                   'Angstrom_Exponent_1_Ocean']
     
@@ -178,7 +183,8 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
         asl_type.extend(scaled['Aerosol_Type_Land'][highest_qf])
         ae_land.extend(scaled['Deep_Blue_Angstrom_Exponent_Land'][highest_qf])
         ssa_land.extend(scaled['Deep_Blue_Spectral_Single_Scattering_Albedo_Land'][1, highest_qf])
-        fm_frc_ocean.extend(scaled['Optical_Depth_Ratio_Small_Ocean_0.55micron'][highest_qf])
+        fmf_land.extend(scaled['Optical_Depth_Ratio_Small_Land'])
+        fmf_ocean.extend(scaled['Optical_Depth_Ratio_Small_Ocean_0.55micron'][highest_qf])
         ae_ocean.extend(scaled['Angstrom_Exponent_1_Ocean'][highest_qf])
     
     lon = np.array(lon)
@@ -189,28 +195,36 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
     asl_type = np.array(asl_type)
     ae_land = np.array(ae_land)
     ssa_land = np.array(ssa_land)
-    fmf_ocean = np.array(fm_frc_ocean)
+    fmf_land = np.array(fmf_land)
+    fmf_ocean = np.array(fmf_ocean)
     ae_ocean = np.array(ae_ocean)
     print()
+    
+    # Get fine mode fraction for both land and ocean
+    fmf = fmf_land
+    print(fmf[(fmf<0)|(fmf>1)])
+    fmf[fmf_land < 0] = fmf_ocean[fmf_land < 0]
      
     # Put all of the fields into one structured array
     fields_type = np.dtype([('AOD_NM550', aod.dtype), ('LNGD', lon.dtype),
                             ('LTTD', lat.dtype), ('TIME', time.dtype),
                             ('STLT_IDNY', sat_idny.dtype), ('ARSL_TYPE', asl_type.dtype),
                             ('AE_LAND', ae_land.dtype), ('SSA_LAND', ssa_land.dtype),
+                            ('FM_FRC_LAND', fmf_land.dtype),
                             ('FM_FRC_OCEAN', fmf_ocean.dtype), ('AE_OCEAN', ae_ocean.dtype)])
-     
+    
     fields_arr = np.empty(len(lon), dtype = fields_type)
-    fields_arr['AOD_NM550'] = np.array(aod)
-    fields_arr['LNGD'] = np.array(lon)
-    fields_arr['LTTD'] = np.array(lat)
-    fields_arr['TIME'] = np.array(time)
-    fields_arr['STLT_IDNY'] = np.array(sat_idny)
-    fields_arr['ARSL_TYPE'] = np.array(asl_type)
-    fields_arr['AE_LAND'] = np.array(ae_land)
-    fields_arr['SSA_LAND'] = np.array(ssa_land)
-    fields_arr['FM_FRC_OCEAN'] = np.array(fm_frc_ocean)
-    fields_arr['AE_OCEAN'] = np.array(ae_ocean)
+    fields_arr['AOD_NM550'] = aod
+    fields_arr['LNGD'] = lon
+    fields_arr['LTTD'] = lat
+    fields_arr['TIME'] = time
+    fields_arr['STLT_IDNY'] = sat_idny
+    fields_arr['ARSL_TYPE'] = asl_type
+    fields_arr['AE_LAND'] = ae_land
+    fields_arr['SSA_LAND'] = ssa_land
+    fields_arr['ARSL_SMAL_MODE_FRCN'] = fmf
+    fields_arr['FM_FRC_OCEAN'] = fmf_ocean
+    fields_arr['AE_OCEAN'] = ae_ocean
     
     # Remove files?
     if keep_files == False:

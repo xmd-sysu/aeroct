@@ -17,8 +17,6 @@ try:
 except ModuleNotFoundError:
     import pickle
 
-import sys
-sys.path.append('/home/h01/savis/workspace/summer')
 from aeroct import aeronet
 from aeroct import modis
 from aeroct import metum
@@ -127,12 +125,11 @@ class DataFrame():
             If 'total' or 'dust' is selected and the data frame does not contain that
             type of data then a ValueError is raised.
         dust_filter_fields : list of str, optional
-            This is used if dust AOD is to be retrieved and the data frame does not
-            contain dust AOD data at every location (ie. MODIS data). This lists the
-            conditions to decide which AOD values are dominated by dust. The conditions
-            within a secondary array are combined using AND, while the conditions in the
-            first array are combined with OR. ie. [['a', 'b'], 'c'] represents
-            (filter['a'] AND filter['b]) OR filter['c']. 
+            This is used if dust AOD is to be retrieved and the data frame contains dust
+            filters (ie. MODIS data). This lists the conditions to decide which AOD
+            values are dominated by dust. The conditions within a secondary array are
+            combined using AND, while the conditions in the first array are combined with OR.
+            ie. [['a', 'b'], 'c'] represents (filter['a'] AND filter['b]) OR filter['c'].
             MODIS fields:
             - 'ARSL_TYPE_LAND': If it has been flagged as dust already.
             - 'AE_LAND': angstrom exponent <= 0.6 for land data.
@@ -167,8 +164,8 @@ class DataFrame():
             
             if self.cube is None:
                 
-                # If all locations have dust AOD values
-                if self.aod[1] is not None:
+                # If there are no dust filters
+                if self.dust_filters is None:
                     aod = self.aod[1]
                     lon = self.longitudes
                     lat = self.latitudes
@@ -196,7 +193,10 @@ class DataFrame():
                             dust_filter.append(self.dust_filters[f])
                     dust_filter = np.any(dust_filter, axis=0)
                     
-                    aod = self.aod[0][dust_filter]
+                    if aod[1] is None:
+                        aod = self.aod[0][dust_filter]
+                    else:
+                        aod = self.aod[1][dust_filter]
                     lon = self.longitudes[dust_filter]
                     lat = self.latitudes[dust_filter]
                     times = self.times[dust_filter]
@@ -367,11 +367,27 @@ class MatchFrame():
         self.RMS = np.sqrt(np.mean((self.data[1] - self.data[0])**2))   # Root mean square
         self.BIAS_MEAN = np.mean(self.data[1] - self.data[0])           # y - x mean
         self.BIAS_STD = np.std(self.data[1] - self.data[0])             # standard deviation
-        if self.data[0].size > 0:
+        
+        if self.data[0].size > 1:
+            # R2
+            y_mean = np.mean(self.data[1])
+            ss_tot = np.sum((self.data[1] - y_mean) ** 2)
+            ss_res = np.sum((self.data[1] - self.data[0]) ** 2)
+            self.R2 = 1 - ss_res / ss_tot
+            
+            # Linear Regression
             self.R_SLOPE, self.R_INTERCEPT, self.R = \
-                stats.linregress(self.data[0], self.data[1])[:3]        # Regression and Pearson's correlation coefficient
+                stats.linregress(self.data[0], self.data[1])[:3]
+            
+            # Regression of log values
+            data0 = self.data[0][(self.data[0] > 0) & (self.data[1] > 0)]
+            data1 = self.data[1][(self.data[0] > 0) & (self.data[1] > 0)]
+            self.LOG_R_SLOPE, self.LOG_R_INTERCEPT, self.LOG_R = \
+                stats.linregress(np.log10(data0), np.log10(data1))[:3]
         else:
             self.R_SLOPE, self.R_INTERCEPT, self.R = np.nan, np.nan, np.nan
+            self.LOG_R_SLOPE, self.LOG_R_INTERCEPT, self.LOG_R = np.nan, np.nan, np.nan
+            self.R2 = np.nan
     
     
     def datetimes(self):

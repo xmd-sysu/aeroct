@@ -11,6 +11,7 @@ Created on Jul 5, 2018
 
 @author: savis
 '''
+from __future__ import division
 import sys
 import numpy as np
 import matplotlib
@@ -19,6 +20,7 @@ import cartopy.crs as ccrs
 from scipy.interpolate import griddata
 from scipy.interpolate.interpnd import _ndim_coords_from_arrays
 from scipy.spatial import cKDTree
+from scipy.stats import linregress
 
 sys.path.append('/home/h01/savis/workspace/summer')
 import aeroct
@@ -445,7 +447,7 @@ def plot_map_comparison(mf, lat=(-90,90), lon=(-180,180), show=True, grid_size=0
         return fig
 
 
-def scatterplot(df, stats=True, log_scale=True, show=True, error=True, hm_threshold=300, **kwargs):
+def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold=400, **kwargs):
     '''
     This is used to plot AOD data from two sources which have been matched-up on a
     scatter plot. The function returns the figure if show=True.
@@ -455,14 +457,14 @@ def scatterplot(df, stats=True, log_scale=True, show=True, error=True, hm_thresh
         The data frame containing collocated data for a day.
     stats : bool, optional (Default: True)
         Choose whether to show statistics on the plot.
-    log_scale: bool, optional (Default: True)
+    scale: {'log', 'linear', 'bins'}, optional (Default: 'log')
         Choose whether to plot the data on a log scale (if so anything below 1e-4 is not
         displayed).
     show : bool, optional (Default: True)
         If True, the plot is shown otherwise the figure is passed as an output.    
     error : bool, optional (Default: True)
         If True, error bars for the standard deviations are included on the plot.
-    hm_threshold : int, optional (Default: 300)
+    hm_threshold : int, optional (Default: 400)
         The threshold of number of data points above which a heat map will be plotted
         instead of a scatter plot.
     **kwargs : optional
@@ -520,12 +522,16 @@ def scatterplot(df, stats=True, log_scale=True, show=True, error=True, hm_thresh
         ymin = 1e-4 if (ylim[0] < 1e-4) else ylim[0]
     
     # Grid cells
-    if log_scale:
+    if (scale == 'log') | ((not heatmap) & (scale=='bins')):
         x_grid = 10 ** np.linspace(np.log10(xmin), np.log10(xmax), 101)
         y_grid = 10 ** np.linspace(np.log10(ymin), np.log10(ymax), 101)
-    else:
+    elif scale == 'linear':
         x_grid = np.linspace(xmin, xmax, 101)
         y_grid = np.linspace(ymin, ymax, 101)
+    elif scale == 'bins':
+        bins = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
+        x_grid = np.array(bins)
+        y_grid = np.array(bins)
     
     # Plot a scatter plot if there are fewer data points than hm_threshold
     if not heatmap:
@@ -556,7 +562,11 @@ def scatterplot(df, stats=True, log_scale=True, show=True, error=True, hm_thresh
     
     x = np.linspace(1e-4, 10, 101)
     y = df.R_INTERCEPT + x * df.R_SLOPE
-    ax.plot(x, y, 'g-.', lw=2, label='Regression') # Regression line
+    LOG_R_SLOPE, LOG_R_INTERCEPT, LOG_R = \
+                linregress(np.log10(df.data[0]), np.log10(df.data[1]))[:3]
+    y_log = 10 ** (LOG_R_INTERCEPT + np.log10(x) * LOG_R_SLOPE)
+    
+    ax.plot(x, y_log, 'g-.', lw=2, label='Regression') # Regression line
     ax.plot(x, x, c='gray', ls='--', lw=2, label='y = x') # y = x line
     
     # AOD source for dust
@@ -580,7 +590,7 @@ def scatterplot(df, stats=True, log_scale=True, show=True, error=True, hm_thresh
     ax.set_xlabel('{0} AOD {1}'.format(df.names[0], aod_src[df.data_sets[0]]))
     ax.set_ylabel('{0} AOD {1}'.format(df.names[1], aod_src[df.data_sets[1]]))
     
-    if log_scale:
+    if scale=='log':
         ax.loglog()
         xlim = (1e-4, xlim[1]) if (xlim[0] <= 1e-4) else xlim
         ylim = (1e-4, ylim[1]) if (ylim[0] <= 1e-4) else ylim
@@ -588,9 +598,11 @@ def scatterplot(df, stats=True, log_scale=True, show=True, error=True, hm_thresh
     ax.set_ylim(ylim)
     
     # Ticks
-    ax.tick_params(direction='in', bottom=True, top=True, left=True, right=True)
-    ax_x.tick_params(direction='in', bottom=True, top=True, left=True, right=True, labelbottom=False)
-    ax_y.tick_params(direction='in', bottom=True, top=True, left=True, right=True, labelleft=False)
+    ax.tick_params(which='both', direction='in', bottom=True, top=True, left=True, right=True)
+    ax_x.tick_params(which='both', direction='in', bottom=True, top=True, left=True, right=True, labelbottom=False)
+    ax_y.tick_params(which='both', direction='in', bottom=True, top=True, left=True, right=True, labelleft=False)
+    if heatmap & (scale=='bins'):
+        ax.loglog()
     
     # Histograms
     ax_x.hist(df.data[0], bins=x_grid, color='k')

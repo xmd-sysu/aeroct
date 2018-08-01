@@ -8,7 +8,7 @@ Created on Jun 21, 2018
 
 TODO: Allow files to be extracted from before 2015-02-03.
 '''
-
+from __future__ import division
 import os
 import glob
 from datetime import datetime, timedelta

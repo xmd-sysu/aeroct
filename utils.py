@@ -5,6 +5,7 @@ Created on Jul 19, 2018
 
 @author: savis
 '''
+from __future__ import division
 import os
 from datetime import datetime, timedelta
 try:

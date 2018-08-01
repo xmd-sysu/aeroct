@@ -7,7 +7,6 @@ Created on Jun 25, 2018
 
 @author: savis
 '''
-
 from __future__ import division
 from datetime import datetime
 import numpy as np
@@ -47,7 +46,8 @@ def process_data(aod_array, date, satellite='Both', src=None):
     condition = chosen_sat & not_mask
     aod_array = aod_array[condition]
     
-    aod = aod_array['AOD_NM550']   # Total AOD
+    aod_t = aod_array['AOD_NM550']   # Total AOD
+    aod_c = aod_t * (1 - aod_array['ARSL_SMAL_MODE_FRCN'])  # Coarse mode AOD
     lat = aod_array['LTTD']
     lon = aod_array['LNGD']
     time = aod_array['TIME']       # Hours since 00:00:00
@@ -56,7 +56,7 @@ def process_data(aod_array, date, satellite='Both', src=None):
     # Find the elements of the AOD data which satisfy various dust filter conditions
     # Then store these filters in a dictionary
     # Also remove data which is masked (-9999.0)
-    if (src is None) | (src == 'MetDB'):
+    if (src == 'MetDB'):
         filter_type_land = (aod_array['ARSL_TYPE'] == 1)
         # No other filters possible
         filter_ae_land = np.full_like(filter_type_land, True)
@@ -65,7 +65,7 @@ def process_data(aod_array, date, satellite='Both', src=None):
         filter_ae_ocean = np.full_like(filter_type_land, True)
         filter_region_mask_ocean = np.full_like(filter_type_land, True)
     
-    elif src == 'NASA':
+    elif (src is None) | (src == 'NASA'):
         filter_type_land = (aod_array['ARSL_TYPE'] == 5)
         filter_ae_land = (aod_array['AE_LAND'] > - 0.1) & (aod_array['AE_LAND'] <= 0.6)
         filter_ssa_land = (0.878 < aod_array['SSA_LAND']) & (aod_array['SSA_LAND'] < 0.955)
@@ -87,4 +87,4 @@ def process_data(aod_array, date, satellite='Both', src=None):
                    'REGION_OCEAN' : filter_region_mask_ocean,
                    'NONE': np.full_like(filter_type_land, True)}
     
-    return [[aod, None], lon, lat, time, date, wl, dust_filter]
+    return [[aod_t, aod_c], lon, lat, time, date, wl, dust_filter]
