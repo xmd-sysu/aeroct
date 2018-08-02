@@ -348,7 +348,8 @@ def model_sat_match(df_m, df_s, match_time, match_dist, min_points=2, limits=(-1
     and time for each matched pair. Each matched pair has model data within match_time
     of the satellite data and the data is averaged on a grid with grid size match_rad.
     
-    Parameters:
+    Parameters
+    ----------
     df_m : AeroCT DataFrame
         The data-frame obtained with aeroct.load() containing model data.
     df_s : AeroCT DataFrame
@@ -359,7 +360,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist, min_points=2, limits=(-1
         The size of the grid cells for which data will be matched and averaged in degrees.
     min_points : int, optional (Default: 2)
         The minimum number of points from both df1 and df2 in a given matched data point
-        that is required to store that data point. 
+        that is required to store that data point.
     '''
     
     if ((df_m.aod[1] is None) & (df_m.dust_filters is None)) | \
@@ -466,14 +467,6 @@ def model_sat_match(df_m, df_s, match_time, match_dist, min_points=2, limits=(-1
         m_aod_avg_t = m_aod_avg_t[in_loc_t]
         m_aod_std_t = m_aod_std_t[in_loc_t]
         m_aod_num_t = m_aod_num_t[in_loc_t]
-        
-#         # Troubleshooting
-#         if time == 12.0:
-#             a = np.array([m_grid_lon[in_loc_t], m_grid_lat[in_loc_t]])
-#             a = a[:,np.lexsort(a)]
-#             print(a[:,a[0]==0])
-#             print(a[:,np.append(False,np.all(np.diff(a, axis=1)==0, axis=0))])
-#             print(len(m_aod_avg_t))
          
         # APPEND THE DATA
         lons.extend(lons_t)
@@ -508,13 +501,14 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
     NOTE: match_rad is converted to degrees and a circle of latitudes and longitudes are
     used. Therefore not all the data within match_rad may cause a match near the poles.
     
-    Parameters:
+    Parameters
+    ----------
     df1, df2 : AeroCT data frame
         The two data frames to match up.
     match_time : float, optional (Default: 30 (minutes))
         The time over which data will be matched and averaged in minutes.
     match_rad : int, optional (Default: 25 (km))
-        The radius for which data will be matched and averaged in kilometers.
+        The distance for which data will be matched and averaged in kilometers.
     min_points : int, optional (Default: 2)
         The minimum number of points from both df1 and df2 in a given matched data point
         that is required to store that data point.
@@ -632,17 +626,3 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
     
     else:
         raise ValueError('Unrecognised data frame types.')
-
-
-if __name__ == '__main__':
-    Lon1 = np.random.random(2560)
-    Lat1 = np.random.random(2560)
-    Lon2 = np.random.random(206)
-    Lat2 = np.random.random(206)
-    d1 = np.asarray(zip(Lon1, Lat1))
-    d2 = np.asarray(zip(Lon2, Lat2))
-    i, d = getnn(d1, d2, 0.1, k=2)
-#     print(i)
-#     print(d)
-#     print(d1[i])
-    

@@ -39,21 +39,118 @@ class DataFrame():
     
     The total AOD data is stored in the first index of the 'aod' attribute. If there are
     values for the AOD due to dust at every location then these are stored in the second
-    index of 'aod'. If there are not values for the dust AOD at every location (eg. MODIS
-    data) then the total AOD values can be filtered using filters stored in the
-    'dust_filters' attribute.
+    index of 'aod'. If there are filters in the 'dust_filters' attribute (eg. MODIS data)
+    then the AOD values can be filtered using various combinations of these to obtain the
+    dust dominated data points.
     
     The AOD data, longitudes, latitudes, and times for each data point are stored in 1D
-    numpy arrays if the data frame is not loaded from an Iris cube (ie. not model data).
+    NumPy arrays if the data frame is not loaded from an Iris cube (ie. not model data).
     If it has been loaded from an iris cube then the AOD data will be 3D and the
     longitudes, latitudes, and times attributes store only the axes data (the order for
     which is time, lat, lon).
     
-    Initialising:
+    ----------
+    Attributes
+    ----------
+    aod : list of two 1D or 3D NumPy arrays
+        The first element of the list contains the total AOD, the second contains the
+        coarse mode AOD. These are only 3D when the data is gridded in which case 'cube'
+        contains an Iris cube. If 3D the order of indices is [time, latitude, longitude].
+    longitudes : 1D NumPy array
+        This contains the values of the longitude either at every data point or along an
+        axis. (In range -180 to 180)
+    latitudes : 1D NumPy array
+        This contains the values of the latitude either at every data point or along an
+        axis.
+    times : 1D NumPy array
+        This contains the values of the time in hours from 00:00 on the given date,
+        either at every data point or along an axis.
+    date : datetime
+        The date for which the DataFrame instance contains data. Note that this is not
+        the date of the beginning of the forecast if the DataFrame contains forecast
+        data.
+    wavelength : int
+        The wavelength, in nm, for which the AOD data has been taken. (Usually 550 nm)
+    forecast_time : float
+        If the data is from a model this contains the forecast lead time in hours.
+        Otherwise it is None.
+    data_set : {'aeronet', 'metum', 'modis', 'modis_a', 'modis_t'}
+        This indicates the source of the data contained within the DataFrame.
+    name : str
+        This gives the name of the source in a format for printing. It also includes the
+        forecast lead time for model data. 
+    dust_filters : dict or None
+        Dictionary containing lists of indices for the AOD data which satisfies
+        various dust filter conditions. Only currently used for MODIS data.
+        Possible MODIS fields:
+            - 'ARSL_TYPE_LAND': If it has been flagged as dust already.
+            - 'AE_LAND': Angstrom exponent <= 0.6 for land data.
+            - 'SSA_LAND': 0.878 < scattering albedo < 0.955 for land data.
+            - 'FM_FRC_OCEAN': Fine mode fraction <= 0.45 for ocean data.
+            - 'AE_OCEAN': Angstrom exponent <= 0.6 for ocean data.
+            - 'REGION_OCEAN': Only ocean data within the regions with dust are selected.
+    cube : Iris cube or None
+        If the data is obtained from an Iris cube then it is supplied here.
+    additional_data : list of str
+        Extra descriptive data about the data frame such as whether it has been
+        extracted from another DataFrame and the bounds used.
     
-    Attributes:
+    -------
+    Methods
+    -------
+    datetimes :
+        Returns the times as a list of datetime objects rather than the time in hours.
+    get_data :
+        Get an array with either all the total / dust AOD data or the dust AOD data using
+        dust filters. This is returned along with the corresponding longitudes,
+        latitudes, and times. 
+    dump :
+        Saves the DataFrame as a pickled file in the chosen location.
+    extract :
+        Return a new DataFrame containing only the data within the given bounds (inclusive).
     
-    Methods:
+    ------------
+    Initialising
+    ------------
+    Parameters for calling the class directly:
+    aod : list of two 1D or 3D NumPy arrays
+        The first element of the list contains the total AOD, the second contains the
+        coarse mode AOD. These should only be 3D when a cube is passed as an argument;
+        in this case the order of indices is [time, latitude, longitude].
+    longitudes : 1D NumPy array
+        This contains the values of the longitude either at every data point or along an
+        axis. (In range -180 to 180)
+    latitudes : 1D NumPy array
+        This contains the values of the latitude either at every data point or along an
+        axis.
+    times : 1D NumPy array
+        This contains the values of the time in hours from 00:00 on the given date,
+        either at every data point or along an axis.
+    date : datetime
+        The date for which the DataFrame instance contains data. Note that this is not
+        the date of the beginning of the forecast if the DataFrame contains forecast
+        data.
+    wavelength : int, optional (Default: 550)
+        This is the wavelength in nm at which the AOD data has been taken.
+    data_set : {'aeronet', 'metum', 'modis', 'modis_a', 'modis_t'}
+        This indicates the source of the data contained within the DataFrame.
+    Optional kwargs:
+    forecast_time : float, optional (Default: None)
+        If the data is from a model this contains the forecast lead time in hours.
+    dust_filters : dict, optional (Default: None)
+        A dictionary containing lists of indices for the AOD data which satisfies
+        various dust filter conditions.
+    cube : Iris cube (Default: None)
+        If the data is obtained from an Iris cube then it is supplied here.
+    additional_data : list of str (Default: [])
+        Extra descriptive data about the data frame.
+    
+    Parameters for the from_cube class method:
+    cube : Iris cube
+        This is the Iris cube that contains the AOD data required to create the
+        DataFrame.
+    data_set : {'metum'}
+        This indicates the source of the data.
     '''
 
     def __init__(self, aod, longitudes, latitudes, times, date, wavelength=550,
@@ -77,18 +174,8 @@ class DataFrame():
         if self.forecast_time is not None:
             self.name += ' (Lead time: {0} hours)'.format(int(self.forecast_time))
         
-        # Dictionary containing lists of indices for the total AOD data which satisfies
-        # various dust filter conditions. Only currently used for MODIS data. Eg:
-        # Aerosol_Type_Land: Aerosol_Type_Land == 5
-        # AE_Land:    Land AE < 0.6
-        # SSA_Land:    0.878 > Single Scattering Albedo (470nm) > 0.955
-        # FM_FRC_Ocean:    FM Fraction < 0.45
-        # AE_Ocean:    Ocean AE < 0.6
-        self.dust_filters = kw.setdefault('dust_filter', None)
-        
-        # Contains iris cube if from_cube() used
+        self.dust_filters = kw.setdefault('dust_filters', None)
         self.cube = kw.setdefault('cube', None)
-        
         self.additional_data = kw.setdefault('additional_data', [])
     
     
@@ -116,8 +203,10 @@ class DataFrame():
         '''
         Get an array with either all the total AOD data or the dust AOD data. This is
         returned along with the corresponding longitudes, latitudes, and times.
+        Return: aod, lon, lat, times.
         
-        Parameters:
+        Parameters
+        ----------
         aod_type : {None, 'total, or 'dust'}, optional (Default: None)
             The type of AOD data to return.
             None: Return the total AOD if the data frame contains both. If it contains
@@ -137,7 +226,7 @@ class DataFrame():
             - 'FM_FRC_OCEAN': fine mode fraction <= 0.45 for ocean data.
             - 'AE_OCEAN': angstrom exponent <= 0.6 for ocean data.
             - 'REGION_OCEAN': Only ocean data within the regions with dust are selected.
-            - 'NONE: No filter.
+            - 'NONE': No filter.
             By default ['ARSL_TYPE_LAND'] is used if the data has been retrieved from
             MetDB. If downloaded from NASA the following is used:
             [['AE_LAND', 'SSA_LAND'], ['FM_FRC_OCEAN', 'AE_OCEAN']]
@@ -213,25 +302,21 @@ class DataFrame():
         return aod, lon, lat, times
     
     
-    def dump(self, filename=None, dir_path=SCRATCH_PATH+'data_frames/', filetype='pickle'):
+    def dump(self, filename=None, dir_path=SCRATCH_PATH+'data_frames/'):
         '''
-        Save the data frame as a file in the chosen location. Note that saving and
-        loading large data frames can take some time.
+        Saves the DataFrame as a pickled file in the chosen location. Note that some
+        DataFrames can be very large and take some time to save / load.
         
-        Parameters:
-        filename: str, optional (Default: '{data_set}_YYYYMMDD_##')
+        Parameters
+        ----------
+        filename : str, optional (Default: '{data_set}_YYYYMMDD_##')
             What to name the saved file.
-        dir_path: str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
+        dir_path : str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
             The path to the directory where the file will be saved.
-            
         '''
         # Make directory if it does not exist
         os.system('mkdir -p {0}'.format(dir_path))
-        
-        if filetype == 'pickle':
-            file_ext = 'pkl'
-        elif filetype == 'csv':
-            file_ext = 'csv'
+        file_ext = 'pkl'
         
         if filename != None:
             pass
@@ -252,20 +337,33 @@ class DataFrame():
         print('Data frame saved successfully to {0}'.format(filepath))
     
     
-    def extract(self, lon_bounds=(-180, 180), lat_bounds=(-90, 90), time_bounds=(0, 24)):
+    def extract(self, bounds=(-180, 180, -90, 90), time_bounds=(0, 24)):
         '''
         Return a new DataFrame only containing the data within the given bounds (inclusive).
         
-        Parameters:
-        lon_bounds : float tuple, optional (Default: (-180, 180))
-            The bounds on the longitude.
-        lat_bounds : float tuple, optional (Default: (-90, 90))
-            The bounds on the latitude.
-        time_bounds : float tuple, optional (Default: (0, 24))
+        Parameters
+        ----------
+        bounds : 4-tuple, or list of 4-tuples, optional (Default: (-180, 180, -90, 90))
+            This contains the If it is a list of 4-tuples then each corresponds to a
+            region for which the data shall be extracted. The 4-tuples contain the bounds
+            as follows: (min lon, max lon, min lat, max lat)
+        time_bounds : 2-tuple of floats, optional (Default: (0, 24))
             The bounds on the time (hours).
         '''
-        in_lon = (self.longitudes >= lon_bounds[0]) & (self.longitudes <= lon_bounds[1])
-        in_lat = (self.latitudes >= lat_bounds[0]) & (self.latitudes <= lat_bounds[1])
+        if isinstance(bounds[0], (int, long, float)):
+            in_lon = (self.longitudes >= bounds[0]) & (self.longitudes <= bounds[1])
+            in_lat = (self.latitudes >= bounds[2]) & (self.latitudes <= bounds[3])
+            
+        
+        else:
+            in_lon = np.zeros_like(self.longitudes)
+            in_lat = np.zeros_like(self.latitudes)
+            for bound in bounds:
+                in_lon += (self.longitudes >= bound[0]) & (self.longitudes <= bound[1])
+                in_lat += (self.latitudes >= bound[2]) & (self.latitudes <= bound[3])
+            in_lon = np.array(in_lon, dtype=bool)
+            in_lat = np.array(in_lat, dtype=bool)
+        
         in_time = (self.times >= time_bounds[0]) & (self.times <= time_bounds[1])
         in_bounds = (in_lon & in_lat & in_time)
         
@@ -313,8 +411,8 @@ class DataFrame():
             else:
                 dust_filters = None
         
-        ext_description = 'Extraction for lon: {0}, lat: {1}, time: {2}'\
-                          .format(lon_bounds, lat_bounds, time_bounds)
+        ext_description = 'Extraction for lon, lat: {0}, time: {1}'\
+                          .format(bounds, time_bounds)
         if hasattr(self, 'additional_data'):
             additional_data = self.additional_data.append(ext_description)
         else:
@@ -328,11 +426,149 @@ class DataFrame():
 
 class MatchFrame():
     '''
-    The data frame into which the matched AOD data is processed for a single day.
-    The averaged AOD data and standard deviations are contained within 2D numpy array,
-    with the first index referring to the data set. The latitudes, longitudes, and times
-    are all stored in 1D numpy arrays, all of the same length. The date, wavelength and
-    forecast time (for models) are stored as attributes.
+    This data frame is used to contain AOD data matched between two data sources. Each
+    matched-up data point is obtained by taking the mean of the original data points
+    within a maximum distance and time. Various stats for the matched-up data are also
+    supplied.
+    
+    Several attributes including the 'data' attribute containing matched-up AOD data have
+    two values for the first index corresponding to the two data-sets. When plotted on a
+    scatter plot the first of these (data[0]) is put on the x-axis, and the second
+    (data[1]) along the y-axis. Additionally, the AOD bias is calculated as:
+    data[1] - data[0].
+    
+    ----------
+    Attributes
+    ----------
+    data : list of two 1D or 3D NumPy arrays
+        The two elements of the list contain the mean matched-up AOD data for the two
+        data-sets. These are only 3D when the data is gridded in which case 'cube'
+        contains an Iris cube. If 3D the order of indices is [time, latitude, longitude].
+    data_std : list of two 1D or 3D NumPy arrays
+        The standard deviations of the matched-up AOD at every point for each data-set.
+    data_num : list of two 1D or 3D NumPy arrays
+        The number of original data points used to obtain each matched-up AOD value for
+        each data-set.
+    time_diff : 1D or 3D NumPy array
+        The mean time difference between the original data points for each matched-up
+        AOD value.
+    longitudes : 1D NumPy array
+        This contains the values of the longitude either at every data point or along an
+        axis. (In range -180 to 180)
+    latitudes : 1D NumPy array
+        This contains the values of the latitude either at every data point or along an
+        axis.
+    times : 1D NumPy array
+        This contains the values of the time in hours from 00:00 on the data's date,
+        either at every data point or along an axis.
+    date : datetime, or list of datetimes
+        The date for which the MatchFrame instance contains data. It is a list if
+        multiple days have been concatenated into a single MatchFrame.
+    match_radius : int
+        The maximum distance for which data has been matched and averaged in degrees.
+    match_time : int
+        The maximum time over which data has been matched and averaged in hours.
+    wavelength : int
+        The wavelength, in nm, for which the AOD data has been taken. (Usually 550 nm)
+    forecast_times : 2-tuple of floats
+        If the data is from a model this contains the forecast lead time in hours,
+        otherwise it is None. eg. (None, 6) if the first data-set is not a forecast and
+        the second has a lead time of six hours.
+    aod_type : {'total' or 'dust'}
+        The type of AOD data which has been matched.
+    data_sets : 2-tuple of {'aeronet', 'metum', 'modis', 'modis_a', 'modis_t'}
+        This indicates the source of each set of data contained within the MatchFrame.
+    names : 2-tuple of str
+        This gives the name of the source of each data-set in a format for printing. It
+        also includes the forecast lead time for model data.
+    cube : Iris cube or None
+        If the two data-sets have Iris cubes then this contains a cube with the bias of
+        the data points.
+    additional_data : list of str
+        Extra descriptive data about the data frame such as whether it has been
+        extracted from another DataFrame and the bounds used.
+    num : int
+        The total number of matched-up data points.
+    RMS : float
+        The root mean square value of the data: sqrt(mean((data[1] - data[0])**2)).
+    BIAS_MEAN : float
+        The mean bias between the data: mean(data[1] - data[0]).
+    BIAS STD : float
+        The standard deviation of the bias between the data: std(data[1] - data[0]).
+    R2 : float
+        The coefficient of determination for the correlation to the y=x line.
+    R_INTERCEPT, R_SLOPE : float
+        The linear regression coefficients for the data. 
+    R : float
+        The Pearson's correlation coefficient for the linear regression.
+    LOG_R_INTERCEPT, LOG_R_SLOPE : float
+        The regression coefficients when fitting to the log of the data.
+        ie. log10(y) = LOG_R_INTERCEPT + log10(x) * LOG_R_SLOPE
+    LOG_R : float
+        The Pearson's correlation coefficient for the logarithmic regression.
+    
+    -------
+    Methods
+    -------
+    datetimes :
+        Returns the times as a list of datetime objects rather than the time in hours.
+        Only possible if the MatchFrame has not been concatenated.
+    pd_dataframe :
+        Returns a Pandas dataframe containing the data for every data point. It does not
+        contain metadata such as the date and wavelength.
+    dump :
+        Saves the MatchFrame in the chosen location either as a pickle file or a csv.
+    extract :
+        Return a new MatchFrame containing only the data within the given bounds.
+    
+    ------------
+    Initialising
+    ------------
+    Parameters:
+    data : list of two 1D or 3D NumPy arrays
+        The two elements of the list contain the mean matched-up AOD data for the two
+        data-sets. These should only be 3D when the data is gridded in which case 'cube'
+        should be assigned. If 3D the order of indices is [time, latitude, longitude].
+    data_std : list of two 1D or 3D NumPy arrays
+        The standard deviations of the matched-up AOD at every point for each data-set.
+    data_num : list of two 1D or 3D NumPy arrays
+        The number of original data points used to obtain each matched-up AOD value for
+        each data-set.
+    time_diff : 1D or 3D NumPy array
+        The mean time difference between the original data points for each matched-up
+        AOD value.
+    longitudes : 1D NumPy array
+        This contains the values of the longitude either at every data point or along an
+        axis. (In range -180 to 180)
+    latitudes : 1D NumPy array
+        This contains the values of the latitude either at every data point or along an
+        axis.
+    times : 1D NumPy array
+        This contains the values of the time in hours from 00:00 on the data's date,
+        either at every data point or along an axis.
+    date : datetime, or list of datetimes
+        The date for which the MatchFrame instance contains data. It should be a list if
+        multiple days have been concatenated into a single MatchFrame.
+    match_time : int
+        The maximum time over which data has been matched and averaged in hours.
+    match_rad : int
+        The maximum distance for which data has been matched and averaged in degrees.
+    wavelength : int, optional (Default: 550)
+        The wavelength, in nm, for which the AOD data has been taken.
+    forecast_times : 2-tuple of floats, optional (Default: (None, None))
+        If the data is from a model this contains the forecast lead time in hours,
+        otherwise it is None. eg. (None, 6) if the first data-set is not a forecast and
+        the second has a lead time of six hours.
+    data_sets : 2-tuple of {'aeronet', 'metum', 'modis', 'modis_a', 'modis_t'}
+        This indicates the source of each set of data contained within the MatchFrame.
+    aod_type : {'total' or 'dust'}
+        The type of AOD data which has been matched.
+    Optional kwargs:
+    cube : Iris cube or None
+        If the two data-sets are both gridded then this should be assigned to a cube
+        containg bias data.
+    additional_data : list of str
+        Extra descriptive data about the data frame.
     '''
 
     def __init__(self, data, data_std, data_num, time_diff, longitudes, latitudes, times,
@@ -364,6 +600,7 @@ class MatchFrame():
         self.additional_data = kw.setdefault('additional_data', [])
         
         # Stats
+        self.num = self.data[0].size
         self.RMS = np.sqrt(np.mean((self.data[1] - self.data[0])**2))   # Root mean square
         self.BIAS_MEAN = np.mean(self.data[1] - self.data[0])           # y - x mean
         self.BIAS_STD = np.std(self.data[1] - self.data[0])             # standard deviation
@@ -391,9 +628,21 @@ class MatchFrame():
     
     
     def datetimes(self):
-        return [self.date + timedelta(hours=h) for h in self.times]
+        '''
+        Returns the times as a list of datetime objects rather than the time in hours.
+        Only possible if the MatchFrame has not been concatenated.
+        '''
+        if isinstance(self.date, datetime):
+            return [self.date + timedelta(hours=h) for h in self.times]
+        else:
+            raise Exception('The MatchFrame must not be concatenated to use this method.')
+    
     
     def pd_dataframe(self):
+        '''
+        Returns a Pandas dataframe containing the data for every data point. It does not
+        contain metadata such as the date and wavelength.
+        '''
         data_array = np.array([self.times, self.latitudes, self.longitudes,
                                self.data[0], self.data_std[0], self.data_num[0],
                                self.data[1], self.data_std[1], self.data_num[1],
@@ -414,12 +663,21 @@ class MatchFrame():
              filetype='pickle', overwrite=False):
         '''
         Save the data frame as a file in the chosen location. The filepath is returned.
+        Note that only pickle files can be used to load the MatchFrame as the csv files
+        do not contain all of the necessary metadata.
         
-        Parameters:
-        filename: str, optional (Default: '{data_sets}_YYYYMMDD_##')
-            What to name the saved file.
-        dir_path: str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
+        Parameters
+        ----------
+        filename : str, optional (Default: '{data_sets}_YYYYMMDD_')
+            What to name the saved file. An incremental two digit number will be added to
+            the end.
+        dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
             The path to the directory where the file will be saved.
+        filetype : {'pickle', 'csv'}, optional (Default: 'pickle')
+            The type of file to save. This will add a file extension.
+        overwrite : bool, optional (Default: False)
+            If True, the file with an incremental number of 00 is overwritten. Otherwise
+            the next available number is chosen.
         '''
         if dir_path[-1] != '/': dir_path += '/'
         
@@ -457,6 +715,7 @@ class MatchFrame():
         print('Data frame saved successfully to {0}'.format(filepath))
         
         return filepath
+    
     
     def extract(self, bounds=(-180, 180, -90, 90), time_bounds=(0, 24)):
         '''
@@ -528,9 +787,11 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
     '''
     Load a data frame for a given date using data from either AERONET, MODIS, or the
     Unified Model (metum). This will allow it to be matched and compared with other data
-    sets.
+    sets. If the necessary downloaded data exists within 'dl_dir' then that shall be
+    used, otherwise the data will be downloaded.
     
-    Parameters:
+    Parameters
+    ----------
     data_set: str
         The data set to load. This may be 'aeronet', 'modis', 'modis_a', 'modis_t',
         or 'metum'.
@@ -540,10 +801,10 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
         The directory in which to save downloaded data. The different data sets will be
         saved within directories in this location.
     forecast_time: int, optional (Default: 0)
-        The forecast lead time to use if metum is chosen.
+        The forecast lead time to use if a model is chosen.
     src : str, optional (Default: None)
         The source to retrieve the data from.
-        MODIS: None or 'NASA' to download from ladsweb.modaps.eosdis.nasa.gov/archive/allData/61/
+        MODIS: 'NASA' or None to download from ladsweb.modaps.eosdis.nasa.gov/archive/allData/61/
                'MetDB' for MetDB extraction (Note: fewer dust filters available)
     dl_again : bool, optional (Default: False)
         If it is True then it will download the data again, even if the file already
@@ -604,7 +865,7 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
         print('Processing MODIS data...', end='')
         parameters = modis.process_data(dl_data, date, satellite, src=src)
         print('Complete.')
-        return DataFrame(*parameters[:-1], data_set=data_set, dust_filter=parameters[-1])
+        return DataFrame(*parameters[:-1], data_set=data_set, dust_filters=parameters[-1])
     
     elif data_set == 'metum':
         print('------UNIFIED MODEL {0:03d}Z-----'.format(forecast_time))
@@ -627,12 +888,14 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
     else:
         raise ValueError('Invalid data set: {0}'.format(data_set))
 
+
 def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames'):
     '''
     Load the data frame from a file in the chosen location. Note that saving and
-    loading large data frames can take some time.
+    loading large DataFrames can take some time.
     
-    Parameters:
+    Parameters
+    ----------
     filename : str
         The name of the saved file.
     dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
@@ -653,16 +916,15 @@ def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames'):
 def concatenate_data_frames(df_list):
     '''
     Concatenate a list of data frames over a period of time so that the average may be
-    plotted on a map. A data frame of the input type (DataFrame or MatchFrame)
-    (Currently only works for MatchFrames) is returned with a date attribute containing
-    the list of dates.
+    plotted on a map. A data frame of the input type (DataFrame or MatchFrame) is
+    returned with a date attribute containing the list of dates.
     
-    Parameters:
+    Parameters
+    ----------
     df_list : iterable of DataFrames / MatchFrames
         The list of data frames over a period. All must have the same wavelength and
-        data-set(s). 
+        data-set(s).
     '''
-    # Currently only works for MatchFrames
     if isinstance(df_list[0], MatchFrame):
         
         match_time = df_list[0].match_time
@@ -745,16 +1007,3 @@ def concatenate_data_frames(df_list):
         
         return DataFrame(aod, longitudes, latitudes, times, dates, wavelength, data_set,
                          forecast_time=fc_time)
-
-
-
-if __name__=='__main__':
-    days = np.arange(47)
-    initial_date = datetime(2018, 6, 1)
-    dt_list = [initial_date + timedelta(days=int(d)) for d in days]
-    
-    for date in dt_list:
-        print('Downloading for: ', date)
-        load('metum', date.strftime('%Y%m%d'), forecast_time=6, dl_again=True)
-        load('metum', date.strftime('%Y%m%d'), forecast_time=12)
-        load('metum', date.strftime('%Y%m%d'), forecast_time=18)

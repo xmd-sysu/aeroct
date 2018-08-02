@@ -20,23 +20,34 @@ from aeroct import metum
 SCRATCH_PATH = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
 
-def datetime_list(initial_date, days=None, str_format=None):
+def datetime_list(initial_date, final_date=None, days=None, str_format=None):
     '''
-    Return a list of datetimes (at 00:00:00) beginning at initial_date. The days argument
-    is a list for which each element gives the number of days after initial date for each
-    element of the returned list.
-    Eg. datetime_list(initial_date='20180624', days=[-3,4,7]) will return datetime a list
-    of datetime objects of: [2018-06-21, 2018-06-28, 2018-07-02]
+    Return a list of datetimes (at 00:00:00) or strings beginning at 'initial_date'.
+    If 'final_date' is given then all the days up to this day will be returned. Otherwise
+    the days argument is used. If both are None then all dates up to the yesterday are
+    returned.
     
-    Parameters:
+    Parameters
+    ----------
     initial_date : str
-        The date corresponding to days=0. Format is 'YYYYMMDD'.
-    days : int list, optional (Default: None)
-        The days after initial_date to return datetime objects. If None, then all dates
-        up until yesterday are returned.
+        The first date in the list. Format is 'YYYYMMDD'.
+    initial_date : str, optional (Default: None)
+        The final date in the list. Format is 'YYYYMMDD'.
+    days : list of int, optional (Default: None)
+        The days after initial_date to return datetime objects.
+        Eg. datetime_list(initial_date='20180624', days=[-3,4,7]) will return datetime a
+        list of datetime objects of: [2018-06-21, 2018-06-28, 2018-07-02]
+    str_format : str, optional (Default: None)
+        If None then datetimes will be returned otherwise this string provides the format
+        to convert them to datetimes.
     '''
-    if days is None:
-        days = (datetime.utcnow() - datetime.strptime(initial_date, '%Y%m%d')).days 
+    if final_date is not None:
+        days = (datetime.strptime(final_date, '%Y%m%d') - \
+                datetime.strptime(initial_date, '%Y%m%d')).days
+        days = range(days + 1)
+    elif days is None:
+        days = (datetime.utcnow() - datetime.strptime(initial_date, '%Y%m%d')).days
+        days = range(days)
     
     initial_date = datetime.strptime(initial_date, '%Y%m%d')
     dt_list = [initial_date + timedelta(days=int(d)) for d in days]
@@ -52,20 +63,21 @@ def download_range(data_set, date_list, dl_dir=SCRATCH_PATH+'downloads/',
     Download the files containing data for a list of dates. Then the required data fields
     are extracted and the data is saved in a pickled file for each date.
     
-    Parameters:
-    data_set: str
+    Parameters
+    ----------
+    data_set : str
         The data set to load. This may be 'aeronet', 'modis', 'modis_a', 'modis_t',
         or 'metum'.
-    date_list: datetime list
+    date_list : datetime list
         The dates for the data that is to be downloaded.
     dl_dir : str, optional (Default: '/scratch/{USER}/aeroct/downloads/')
         The directory in which to save downloaded data. The different data sets will be
         saved within directories in this location.
     forecast_time: int, optional (Default: 0)
-        The forecast lead time to use if metum is chosen.
+        The forecast lead time to use if 'metum' is chosen.
     src : str, optional (Default: None)
         The source to retrieve the data from.
-        MODIS: None or 'NASA' to download from ladsweb.modaps.eosdis.nasa.gov/archive/allData/61/
+        MODIS: 'NASA' or None to use ladsweb.modaps.eosdis.nasa.gov/archive/allData/61/
                'MetDB' for MetDB extraction (Note: fewer dust filters available)
     dl_again : bool, optional (Default: False)
         If it is True then it will download the data again, even if the file already

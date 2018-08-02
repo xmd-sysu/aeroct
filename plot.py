@@ -12,7 +12,6 @@ Created on Jul 5, 2018
 @author: savis
 '''
 from __future__ import division
-import sys
 from datetime import datetime
 import numpy as np
 import matplotlib
@@ -23,7 +22,6 @@ from scipy.interpolate.interpnd import _ndim_coords_from_arrays
 from scipy.spatial import cKDTree
 from scipy.stats import linregress
 
-sys.path.append('/home/h01/savis/workspace/summer')
 import aeroct
 
 # Suppress warnings from importing iris.plot in python 2
@@ -107,43 +105,6 @@ def shiftedColorMap(cmap, data, vmin=None, vmax=None, midpoint=0, name='shiftedc
     return newcmap
 
 
-def plot_anet_site(df, site=0):
-    '''
-    Plot the daily AOD data for a single AERONET site.
-    
-    Parameters:
-    df : aeroct DataFrame
-        A data-frame returned by aeroct.load() containing AERONET data, from which to plot.
-    site : int, optional (Default: 0)
-        The index for the AERONET site in a list sorted by increasing longitude.
-    '''
-    
-    if df.data_set != 'aeronet':
-        raise ValueError('Only AERONET data may be used in this function.')
-    
-    lons, i_uniq, i_inv = np.unique(df.longitudes, return_index=True , return_inverse=True)
-    lon = lons[site]
-    lat = df.latitudes[i_uniq[site]]
-    
-    aod = df.data[i_inv == site]
-    times = df.times[i_inv == site]
-    
-    plt.plot(times, aod)#, 'ro')
-    plt.title('Daily AOD from AERONET at (lon: {:.02f}, lat: {:.02f})'.format(lon, lat))
-    plt.show()
-
-
-def plot_aod_hist(df, aod_type=None):
-    if df.data_set == 'metum':
-        if (aod_type is None) | (aod_type == 'dust'):
-            aod = df.aod[1]
-    else:
-        aod = df.get_data(aod_type)[0]
-    
-    plt.hist(aod, bins=20)
-    plt.show()
-    
-
 def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
              show=True, grid_size=0.5, vmin=None, vmax=None):
     '''
@@ -153,7 +114,8 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
     This will be displayed as individual sites if AERONET data is included, otherwise on
     a grid.
     
-    Parameters:
+    Parameters
+    ----------
     df : AeroCT DataFrame / MatchFrame, or list of DataFrames / MatchFrames
     data_type : {None, 'total' or 'dust'} (Default: None)
         This describes which AOD data to plot if the data frame is a DataFrame instance.
@@ -165,18 +127,17 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
         A tuple of the latitude bounds of the plot in degrees.
     lon : tuple, optional (Default: (-180, 180))
         A tuple of the longitude bounds of the plot in degrees.
-    plot_type : str, optional (Default: 'scatter')
+    plot_type : str, optional (Default: 'pcolormesh')
         The type of plot to produce if it does not contain AERONET data. 'scatter' to
         plot a scatter grid of all AOD data, and 'pcolormesh' or 'contourf' for griddded
         plots.
     show : bool, optional (Default: True)
         If True the figure is shown, otherwise it is returned 
-    grid_size : float, optional (Default: 1)
+    grid_size : float, optional (Default: 0.5)
         The size of the grid squares in degrees if not using indivdual sites
     vmin, vmax : scalar, optional (Default: None)
         vmin and vmax are used to set limits for the color map. If either is None, it is
         autoscaled to the respective min or max of the plotted data.
-
     '''
     
     # Convert a list of match frames to a single match frame that may be plotted
@@ -334,152 +295,13 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
         return fig
 
 
-def plot_region_mask(bounds):
-    '''
-    Used to plot regions on a map which are bounded by longitude and latitude.
-    
-    Parameters
-    ----------
-    bounds : list of 4-tuples
-        Each 4-tuple in this list corresponds to a region that will be plotted on the
-        map. The 4-tuples contain the bounds as follows:
-        (min lon, max lon, min lat, max lat)
-    '''
-    ax = plt.axes(projection=ccrs.PlateCarree())
-    ax.coastlines()
-    ax.set_global()
-    ax.gridlines(linestyle='--', linewidth=0.3, draw_labels=True)
-    
-    for bound in bounds:
-        width = bound[1] - bound[0]
-        height = bound[3] - bound[2]
-        region = patches.Rectangle((bound[0], bound[2]), width, height,
-                                   edgecolor='grey', facecolor='whitesmoke')
-        ax.add_patch(region)
-    
-    plt.show()
-
-
-def plot_map_comparison(mf, lat=(-90,90), lon=(-180,180), show=True, grid_size=0.5,
-                        vmin=None, vmax=None):
-    '''
-    '''
-    # If a list of MatchFrames is provided convert these into a single MatchFrame to plot
-    if isinstance(mf, list):
-        mf = aeroct.concatenate_data_frames(mf)
-        date = '{0} to {1}'.format(mf.date[0].date(), mf.date[-1].date())
-    else:
-        date = mf.date.date()
-    
-    lon_mid = (lon[0] + lon[1]) / 2
-    
-    # Figure layout
-    fig = plt.figure()
-    ax = plt.axes([0.1, 0.15, 0.75, 0.75], projection=ccrs.PlateCarree())
-    slider_ax = plt.axes([0.1, 0.05, 0.75, 0.03])
-    colorbar_ax = plt.axes([0.88, 0.15, 0.03, 0.75])
-    
-    ax.set_xlim(lon)
-    ax.set_ylim(lat)
-    
-    cmap = cm.get_cmap('Oranges')
-    
-    # Find the data within the given longitude and latitude bounds
-    in_bounds = (mf.longitudes > lon[0]) & (mf.longitudes < lon[1]) & \
-                (mf.latitudes > lat[0]) & (mf.latitudes < lat[1])
-    lons = mf.longitudes[in_bounds]
-    lats = mf.latitudes[in_bounds]
-    
-    data1 = mf.data[0, in_bounds]
-    data2 = mf.data[1, in_bounds]
-    plt.title('AOD difference (mean) : {0} - {1} for {2}'\
-              .format(mf.names[1], mf.names[0], date))
-    
-    # If AERONET is included plot the sites on a map
-    if np.any([mf.data_sets[i] == 'aeronet' for i in [0,1]]):
-        # Get the list of data points at each location
-        site_lons, i_site = np.unique(lons, return_index=True)
-        site_lats = lats[i_site]
-        in_sites = site_lons[:, np.newaxis] == lons
-        # Average the AOD at each site and take std
-        site_data1_avg = np.mean(data1 * in_sites, axis=1)
-        site_data2_avg = np.mean(data2 * in_sites, axis=1)
-        
-        # Plot the initial scatterplots
-        im = ax.scatter(site_lons, site_lats, c=site_data1_avg, s=50, cmap=cmap,
-                         vmin=vmin, vmax=vmax)
-        
-        site_lons2 = site_lons[site_lons > lon_mid]
-        site_lats2 = site_lats[site_lons > lon_mid]
-        site_data2 = site_data2_avg[site_lons > lon_mid]
-        sc = ax.scatter(site_lons2, site_lats2, c=site_data2, s=50, cmap=cmap,
-                         vmin=vmin, vmax=vmax)
-        
-        def update(val):
-            lon_var = slide_lon.val
-            
-            show_site2 = site_lons > lon_var
-            site_lons2 = site_lons[show_site2]
-            site_lats2 = site_lats[show_site2]
-            site_data2 = site_data2_avg[show_site2]
-            site_lons1 = site_lons[~show_site2]
-            site_lats1 = site_lats[~show_site2]
-            site_data1 = site_data2_avg[~show_site2]
-            
-            # Plot the updated scatter plots
-            if site_data1.size > 0:
-                ax.scatter(site_lons1, site_lats1, c=site_data1, s=50, cmap=cmap,
-                         vmin=vmin, vmax=vmax)
-            if site_data1.size > 1:
-                ax.scatter(site_lons2, site_lats2, c=site_data2, s=50, cmap=cmap,
-                         vmin=vmin, vmax=vmax)
-            
-            vline.set_xdata([lon_var, lon_var])
-            fig.canvas.draw_idle()
-    
-    # OTHERWISE PLOT A GRID
-    else:
-        # Using scipy.interpolate.griddata
-        # First get the axes
-        grid = np.mgrid[(lon[0] + grid_size/2) : lon[1] : grid_size,
-                        (lat[0] + grid_size/2) : lat[1] : grid_size]
-        ll = zip(lons, lats)
-        
-        data_grid = griddata(ll, data1, tuple(grid), method='linear')
-        
-        # Mask grid data where there are no nearby points. Firstly create kd-tree
-        THRESHOLD = grid_size   # Maximum distance to look for nearby points
-        tree = cKDTree(ll)
-        xi = _ndim_coords_from_arrays(tuple(grid))
-        dists = tree.query(xi)[0]
-        # Copy original result but mask missing values with NaNs
-        data_grid[dists > THRESHOLD] = np.nan
-        
-        plt.pcolormesh(grid[0], grid[1], data_grid, cmap=cmap,
-                       vmin=vmin, vmax=vmax)
-    
-    # Slider
-    slide_step = (lon[1] - lon[0]) / 20
-    slide_lon = widgets.Slider(slider_ax, 'Move ->', lon[0], lon[1], valinit=lon_mid,
-                               valstep=slide_step, facecolor='white')
-    vline, = ax.plot([lon_mid, lon_mid], ax.get_ylim(), c='k', linewidth=5)
-    slide_lon.on_changed(update)
-    
-    ax.coastlines()
-    plt.colorbar(im, cax=colorbar_ax)
-    if show == True:
-        plt.show()
-        return
-    else:
-        return fig
-
-
 def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold=400, **kwargs):
     '''
     This is used to plot AOD data from two sources which have been matched-up on a
     scatter plot. The function returns the figure if show=True.
     
-    Parameters:
+    Parameters
+    ----------
     df : AeroCT MatchFrame
         The data frame containing collocated data for a day.
     stats : bool, optional (Default: True)
@@ -660,23 +482,6 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
         return fig
 
 
-def animate_cube(df):
-    
-    fig, ax = plt.subplots()
-    im = iplt.pcolormesh(df.cube[0])
-    plt.colorbar(im)
-    
-    def animate(i):
-        C = df.cube.data[i]
-        C = C[:-1, :-1] # Necessary for shading='flat'
-        im.set_array(C.ravel())
-        return im,
-    
-    ani = animation.FuncAnimation(fig, animate, interval=1000, blit=True, save_count=len(df.cube.data)-1)
-    
-    plt.show()
-
-
 def period_bias_plot(mf_list, xlim=None, ylim=None, show=True, **kw):
     '''
     Given a list containing MatchFrames the bias between the two sets of collocated AOD
@@ -734,3 +539,212 @@ def period_bias_plot(mf_list, xlim=None, ylim=None, show=True, **kw):
         plt.show()
     else:
         return fig
+
+
+def plot_anet_site(df, site=0, aod_type=None):
+    '''
+    Plot the daily AOD data for a single AERONET site.
+    
+    Parameters
+    ----------
+    df : aeroct DataFrame
+        A data-frame returned by aeroct.load() containing AERONET data, from which to plot.
+    site : int, optional (Default: 0)
+        The index for the AERONET site in a list sorted by increasing longitude.
+    aod_type : {'total', 'dust', 'both'}, optional (Default: 'both')
+        The type of AOD data to plot.
+    '''
+    
+    if df.data_set != 'aeronet':
+        raise ValueError('Only AERONET data may be used in this function.')
+    
+    lons, i_uniq, i_inv = np.unique(df.longitudes, return_index=True , return_inverse=True)
+    lon = lons[site]
+    lat = df.latitudes[i_uniq[site]]
+    times = df.times[i_inv == site]
+    
+    if aod_type == 'total':
+        aod_t = df.data[0, i_inv == site]
+    elif aod_type == 'dust':
+        aod_d = df.data[1, i_inv == site]
+    elif aod_type == 'both':
+        aod_t = df.data[0, i_inv == site]
+        aod_d = df.data[1, i_inv == site]
+    
+    if aod_type in ('total', 'both'):
+        plt.plot(times, aod_t, label='Total')
+    if aod_type in ('dust', 'both'):
+        plt.plot(times, aod_d, label='Dust')
+    plt.title('Daily {0} AOD From AERONET At (Lon: {1:.02f}, Lat: {2:.02f})'\
+              .format(df.name.title(), lon, lat))
+    if aod_type == 'both':
+        plt.legend(loc='best')
+    plt.show()
+
+
+def plot_aod_hist(df, aod_type=None):
+    if df.data_set == 'metum':
+        if (aod_type is None) | (aod_type == 'dust'):
+            aod = df.aod[1]
+    else:
+        aod = df.get_data(aod_type)[0]
+    
+    plt.hist(aod, bins=20)
+    plt.show()
+    
+
+def plot_region_mask(bounds):
+    '''
+    Used to plot regions on a map which are bounded by longitude and latitude.
+    
+    Parameters
+    ----------
+    bounds : list of 4-tuples
+        Each 4-tuple in this list corresponds to a region that will be plotted on the
+        map. The 4-tuples contain the bounds as follows:
+        (min lon, max lon, min lat, max lat)
+    '''
+    ax = plt.axes(projection=ccrs.PlateCarree())
+    ax.coastlines()
+    ax.set_global()
+    ax.gridlines(linestyle='--', linewidth=0.3, draw_labels=True)
+    
+    for bound in bounds:
+        width = bound[1] - bound[0]
+        height = bound[3] - bound[2]
+        region = patches.Rectangle((bound[0], bound[2]), width, height,
+                                   edgecolor='grey', facecolor='whitesmoke')
+        ax.add_patch(region)
+    
+    plt.show()
+
+
+def plot_map_comparison(mf, lat=(-90,90), lon=(-180,180), show=True, grid_size=0.5,
+                        vmin=None, vmax=None):
+    '''
+    '''
+    # If a list of MatchFrames is provided convert these into a single MatchFrame to plot
+    if isinstance(mf, list):
+        mf = aeroct.concatenate_data_frames(mf)
+        date = '{0} to {1}'.format(mf.date[0].date(), mf.date[-1].date())
+    else:
+        date = mf.date.date()
+    
+    lon_mid = (lon[0] + lon[1]) / 2
+    
+    # Figure layout
+    fig = plt.figure()
+    ax = plt.axes([0.1, 0.15, 0.75, 0.75], projection=ccrs.PlateCarree())
+    slider_ax = plt.axes([0.1, 0.05, 0.75, 0.03])
+    colorbar_ax = plt.axes([0.88, 0.15, 0.03, 0.75])
+    
+    ax.set_xlim(lon)
+    ax.set_ylim(lat)
+    
+    cmap = cm.get_cmap('Oranges')
+    
+    # Find the data within the given longitude and latitude bounds
+    in_bounds = (mf.longitudes > lon[0]) & (mf.longitudes < lon[1]) & \
+                (mf.latitudes > lat[0]) & (mf.latitudes < lat[1])
+    lons = mf.longitudes[in_bounds]
+    lats = mf.latitudes[in_bounds]
+    
+    data1 = mf.data[0, in_bounds]
+    data2 = mf.data[1, in_bounds]
+    plt.title('AOD difference (mean) : {0} - {1} for {2}'\
+              .format(mf.names[1], mf.names[0], date))
+    
+    # If AERONET is included plot the sites on a map
+    if np.any([mf.data_sets[i] == 'aeronet' for i in [0,1]]):
+        # Get the list of data points at each location
+        site_lons, i_site = np.unique(lons, return_index=True)
+        site_lats = lats[i_site]
+        in_sites = site_lons[:, np.newaxis] == lons
+        # Average the AOD at each site and take std
+        site_data1_avg = np.mean(data1 * in_sites, axis=1)
+        site_data2_avg = np.mean(data2 * in_sites, axis=1)
+        
+        # Plot the initial scatterplots
+        im = ax.scatter(site_lons, site_lats, c=site_data1_avg, s=50, cmap=cmap,
+                         vmin=vmin, vmax=vmax)
+        
+        site_lons2 = site_lons[site_lons > lon_mid]
+        site_lats2 = site_lats[site_lons > lon_mid]
+        site_data2 = site_data2_avg[site_lons > lon_mid]
+        sc = ax.scatter(site_lons2, site_lats2, c=site_data2, s=50, cmap=cmap,
+                         vmin=vmin, vmax=vmax)
+        
+        def update(val):
+            lon_var = slide_lon.val
+            
+            show_site2 = site_lons > lon_var
+            site_lons2 = site_lons[show_site2]
+            site_lats2 = site_lats[show_site2]
+            site_data2 = site_data2_avg[show_site2]
+            site_lons1 = site_lons[~show_site2]
+            site_lats1 = site_lats[~show_site2]
+            site_data1 = site_data2_avg[~show_site2]
+            
+            # Plot the updated scatter plots
+            if site_data1.size > 0:
+                ax.scatter(site_lons1, site_lats1, c=site_data1, s=50, cmap=cmap,
+                         vmin=vmin, vmax=vmax)
+            if site_data1.size > 1:
+                ax.scatter(site_lons2, site_lats2, c=site_data2, s=50, cmap=cmap,
+                         vmin=vmin, vmax=vmax)
+            
+            vline.set_xdata([lon_var, lon_var])
+            fig.canvas.draw_idle()
+    
+    # OTHERWISE PLOT A GRID
+    else:
+        # Using scipy.interpolate.griddata
+        # First get the axes
+        grid = np.mgrid[(lon[0] + grid_size/2) : lon[1] : grid_size,
+                        (lat[0] + grid_size/2) : lat[1] : grid_size]
+        ll = zip(lons, lats)
+        
+        data_grid = griddata(ll, data1, tuple(grid), method='linear')
+        
+        # Mask grid data where there are no nearby points. Firstly create kd-tree
+        THRESHOLD = grid_size   # Maximum distance to look for nearby points
+        tree = cKDTree(ll)
+        xi = _ndim_coords_from_arrays(tuple(grid))
+        dists = tree.query(xi)[0]
+        # Copy original result but mask missing values with NaNs
+        data_grid[dists > THRESHOLD] = np.nan
+        
+        plt.pcolormesh(grid[0], grid[1], data_grid, cmap=cmap,
+                       vmin=vmin, vmax=vmax)
+    
+    # Slider
+    slide_step = (lon[1] - lon[0]) / 20
+    slide_lon = widgets.Slider(slider_ax, 'Move ->', lon[0], lon[1], valinit=lon_mid,
+                               valstep=slide_step, facecolor='white')
+    vline, = ax.plot([lon_mid, lon_mid], ax.get_ylim(), c='k', linewidth=5)
+    slide_lon.on_changed(update)
+    
+    ax.coastlines()
+    plt.colorbar(im, cax=colorbar_ax)
+    if show == True:
+        plt.show()
+        return
+    else:
+        return fig
+
+
+def animate_cube(df):
+    
+    fig, ax = plt.subplots()
+    im = iplt.pcolormesh(df.cube[0])
+    plt.colorbar(im)
+    
+    def animate(i):
+        C = df.cube.data[i]
+        C = C[:-1, :-1] # Necessary for shading='flat'
+        im.set_array(C.ravel())
+        return im,
+    
+    ani = animation.FuncAnimation(fig, animate, interval=1000, blit=True, save_count=len(df.cube.data)-1)
+    
+    plt.show()
