@@ -337,7 +337,7 @@ class MatchFrame():
 
     def __init__(self, data, data_std, data_num, time_diff, longitudes, latitudes, times,
                  date, match_time, match_rad, wavelength=550, forecast_times=(None, None),
-                 data_sets=(None, None), aod_type=0, **kw):
+                 data_sets=(None, None), aod_type='total', **kw):
         # Data and axes
         self.data       = data              # Averaged AOD data (Not flattend if cube != None)
         self.data_std   = data_std          # Averaged AOD data standard deviations
@@ -458,20 +458,34 @@ class MatchFrame():
         
         return filepath
     
-    def extract(self, lon_bounds=(-180, 180), lat_bounds=(-90, 90), time_bounds=(0, 24)):
+    def extract(self, bounds=(-180, 180, -90, 90), time_bounds=(0, 24)):
         '''
-        Return a new MatchFrame only containing the data within the given bounds (inclusive).
+        Return a new MatchFrame only containing the data within the given bounds
+        (inclusive).
         
-        Parameters:
-        lon_bounds : float tuple, optional (Default: (-180, 180))
-            The bounds on the longitude.
-        lat_bounds : float tuple, optional (Default: (-90, 90))
-            The bounds on the latitude.
-        time_bounds : float tuple, optional (Default: (0, 24))
+        Parameters
+        ----------
+        bounds : 4-tuple, or list of 4-tuples, optional (Default: (-180, 180, -90, 90))
+            This contains the If it is a list of 4-tuples then each corresponds to a
+            region for which the data shall be extracted. The 4-tuples contain the bounds
+            as follows: (min lon, max lon, min lat, max lat)
+        time_bounds : float 2-tuple, optional (Default: (0, 24))
             The bounds on the time (hours).
         '''
-        in_lon = (self.longitudes >= lon_bounds[0]) & (self.longitudes <= lon_bounds[1])
-        in_lat = (self.latitudes >= lat_bounds[0]) & (self.latitudes <= lat_bounds[1])
+        if isinstance(bounds[0], (int, long, float)):
+            in_lon = (self.longitudes >= bounds[0]) & (self.longitudes <= bounds[1])
+            in_lat = (self.latitudes >= bounds[2]) & (self.latitudes <= bounds[3])
+            
+        
+        else:
+            in_lon = np.zeros_like(self.longitudes)
+            in_lat = np.zeros_like(self.latitudes)
+            for bound in bounds:
+                in_lon += (self.longitudes >= bound[0]) & (self.longitudes <= bound[1])
+                in_lat += (self.latitudes >= bound[2]) & (self.latitudes <= bound[3])
+            in_lon = np.array(in_lon, dtype=bool)
+            in_lat = np.array(in_lat, dtype=bool)
+        
         in_time = (self.times >= time_bounds[0]) & (self.times <= time_bounds[1])
         in_bounds = (in_lon & in_lat & in_time)
         
@@ -495,8 +509,8 @@ class MatchFrame():
             time_diff = self.time_diff[in_bounds]
             cube = None
         
-        ext_description = 'Extraction for lon: {0}, lat: {1}, time: {2}'\
-                          .format(lon_bounds, lat_bounds, time_bounds)
+        ext_description = 'Extraction for lon, lat: {0}, time: {1}'\
+                          .format(bounds, time_bounds)
         if hasattr(self, 'additional_data'):
             additional_data = self.additional_data.append(ext_description)
         else:

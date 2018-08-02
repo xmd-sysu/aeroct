@@ -13,9 +13,10 @@ Created on Jul 5, 2018
 '''
 from __future__ import division
 import sys
+from datetime import datetime
 import numpy as np
 import matplotlib
-from matplotlib import pyplot as plt, cm, animation, widgets
+from matplotlib import pyplot as plt, cm, animation, widgets, patches
 import cartopy.crs as ccrs
 from scipy.interpolate import griddata
 from scipy.interpolate.interpnd import _ndim_coords_from_arrays
@@ -333,6 +334,32 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
         return fig
 
 
+def plot_region_mask(bounds):
+    '''
+    Used to plot regions on a map which are bounded by longitude and latitude.
+    
+    Parameters
+    ----------
+    bounds : list of 4-tuples
+        Each 4-tuple in this list corresponds to a region that will be plotted on the
+        map. The 4-tuples contain the bounds as follows:
+        (min lon, max lon, min lat, max lat)
+    '''
+    ax = plt.axes(projection=ccrs.PlateCarree())
+    ax.coastlines()
+    ax.set_global()
+    ax.gridlines(linestyle='--', linewidth=0.3, draw_labels=True)
+    
+    for bound in bounds:
+        width = bound[1] - bound[0]
+        height = bound[3] - bound[2]
+        region = patches.Rectangle((bound[0], bound[2]), width, height,
+                                   edgecolor='grey', facecolor='whitesmoke')
+        ax.add_patch(region)
+    
+    plt.show()
+
+
 def plot_map_comparison(mf, lat=(-90,90), lon=(-180,180), show=True, grid_size=0.5,
                         vmin=None, vmax=None):
     '''
@@ -523,8 +550,8 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
     
     # Grid cells
     if (scale == 'log') | ((not heatmap) & (scale=='bins')):
-        x_grid = 10 ** np.linspace(np.log10(xmin), np.log10(xmax), 101)
-        y_grid = 10 ** np.linspace(np.log10(ymin), np.log10(ymax), 101)
+        x_grid = 10 ** np.linspace(np.log10(xmin), np.log10(xmax), 201)
+        y_grid = 10 ** np.linspace(np.log10(ymin), np.log10(ymax), 201)
     elif scale == 'linear':
         x_grid = np.linspace(xmin, xmax, 101)
         y_grid = np.linspace(ymin, ymax, 101)
@@ -566,7 +593,7 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
                 linregress(np.log10(df.data[0]), np.log10(df.data[1]))[:3]
     y_log = 10 ** (LOG_R_INTERCEPT + np.log10(x) * LOG_R_SLOPE)
     
-    ax.plot(x, y_log, 'g-.', lw=2, label='Regression') # Regression line
+#     ax.plot(x, y_log, 'g-.', lw=2, label='Regression') # Regression line
     ax.plot(x, x, c='gray', ls='--', lw=2, label='y = x') # y = x line
     
     # AOD source for dust
@@ -611,18 +638,20 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
     # Stats
     if stats == True:
         box = dict(facecolor='w', edgecolor='w', pad=-0.75)
+        num_str = 'Num: {:d}'.format(df.data[0].size)
+        plt.text(0.03, 0.94, num_str, fontsize=12, transform=ax.transAxes, bbox=box)
         rms_str = 'RMS: {:.02f}'.format(df.RMS)
-        plt.text(0.03, 0.94, rms_str, fontsize=12, transform=ax.transAxes, bbox=box)
-        bias_mean_str = 'Bias mean: {:.02f}'.format(df.BIAS_MEAN)
-        plt.text(0.03, 0.88, bias_mean_str, fontsize=12, transform=ax.transAxes, bbox=box)
-        bias_std_str = 'Bias std: {:.02f}'.format(df.BIAS_STD)
-        plt.text(0.03, 0.82, bias_std_str, fontsize=12, transform=ax.transAxes, bbox=box)
+        plt.text(0.03, 0.88, rms_str, fontsize=12, transform=ax.transAxes, bbox=box)
+        bias_mean_str = 'Bias mean: {:.03f}'.format(df.BIAS_MEAN)
+        plt.text(0.03, 0.82, bias_mean_str, fontsize=12, transform=ax.transAxes, bbox=box)
+        bias_std_str = 'Bias std: {:.03f}'.format(df.BIAS_STD)
+        plt.text(0.03, 0.76, bias_std_str, fontsize=12, transform=ax.transAxes, bbox=box)
         r_str = 'Pearson R: {:.02f}'.format(df.R)
-        plt.text(0.35, 0.94, r_str, fontsize=12, transform=ax.transAxes, bbox=box)
+        plt.text(0.4, 0.94, r_str, fontsize=12, transform=ax.transAxes, bbox=box)
         slope_str = 'Slope: {:.02f}'.format(df.R_SLOPE)
-        plt.text(0.35, 0.88, slope_str, fontsize=12, transform=ax.transAxes, bbox=box)
+        plt.text(0.4, 0.88, slope_str, fontsize=12, transform=ax.transAxes, bbox=box)
         intercept_str = 'Intercept: {:.02f}'.format(df.R_INTERCEPT)
-        plt.text(0.35, 0.82, intercept_str, fontsize=12, transform=ax.transAxes, bbox=box)
+        plt.text(0.4, 0.82, intercept_str, fontsize=12, transform=ax.transAxes, bbox=box)
     
     if show == True:
         plt.show()
@@ -648,35 +677,58 @@ def animate_cube(df):
     plt.show()
 
 
-def period_bias_plot(mf_list, show=True, **kw):
+def period_bias_plot(mf_list, xlim=None, ylim=None, show=True, **kw):
     '''
     Given a list containing MatchFrames the bias between the two sets of collocated AOD
     values are calculated. The mean bias for each day is plotted with an error bar
     containing the standard deviation of the bias.
     
-    Parameters:
+    Parameters
+    ----------
     mf_list : iterable of MatchFrames
         May be obtained using the period_download_and_match() function. The bias is
         the second data set AOD subtract the first.
+    xlim : datetime tuple, optional (Default: None)
+        The limits for the date. If None then the axis is autoscaled to the data.
+    ylim : float tuple, optional (Default: None)
+        The limits for the AOD bias. If None then the axis is autoscaled to the data.
     show : bool, optional (Default: True)
         Choose whether to show the plot. If False the figure is returned by the function.
     kwargs : optional
         These kwargs are passed to matplotlib.pyplot.errorbar() to format the plot. If
         none are supplied then the following are used:
-        fmt='r.', ecolor='gray', capsize=0.
+        fmt='b.', markersize=2, ecolor='gray', capsize=0.
     '''
-    bias_arrays = np.array([mf.data_f[1] - mf.data_f[0] for mf in mf_list])
-    bias_mean = np.mean(bias_arrays, axis=1)
-    bias_std = np.std(bias_arrays, axis=1)
+    bias_arrays = [mf.data[1] - mf.data[0] for mf in mf_list]
+    bias_mean = np.array([np.mean(bias_array) for bias_array in bias_arrays])
+    bias_std = np.array([np.std(bias_array) for bias_array in bias_arrays])
     date_list = [mf.date for mf in mf_list]
     
     # Plot formatting
-    kw.setdefault('fmt', 'r.')
+    kw.setdefault('fmt', 'bs')
+    kw.setdefault('markersize', 2)
     kw.setdefault('ecolor', 'gray')
     kw.setdefault('capsize', 0)
     
-    fig = plt.figure()
+    fig, ax = plt.subplots()
     plt.errorbar(date_list, bias_mean, bias_std, **kw)
+    
+    if xlim is None:
+        ax.set_xlim(ax.get_xlim())
+    else:
+        ax.set_xlim(xlim)
+    if ylim is None:
+        ax.set_ylim(ax.get_ylim())
+    else:
+        ax.set_ylim(ylim)
+    
+    plt.hlines(0, datetime(1970,1,1), datetime(2100,1,1), linestyle='--', lw=0.5)
+    
+    if mf_list[0].aod_type == 0: mf_list[0].aod_type = 'total'
+    if mf_list[0].aod_type == 1: mf_list[0].aod_type = 'dust'
+    plt.title('{0} AOD Daily Mean Bias'.format(mf_list[0].aod_type.title()))
+    plt.xlabel('Date')
+    plt.ylabel('AOD bias ({0} - {1})'.format(mf_list[0].names[1], mf_list[0].names[0]))
     
     if show == True:
         plt.show()

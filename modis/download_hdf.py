@@ -183,7 +183,7 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
         asl_type.extend(scaled['Aerosol_Type_Land'][highest_qf])
         ae_land.extend(scaled['Deep_Blue_Angstrom_Exponent_Land'][highest_qf])
         ssa_land.extend(scaled['Deep_Blue_Spectral_Single_Scattering_Albedo_Land'][1, highest_qf])
-        fmf_land.extend(scaled['Optical_Depth_Ratio_Small_Land'])
+        fmf_land.extend(scaled['Optical_Depth_Ratio_Small_Land'][highest_qf])
         fmf_ocean.extend(scaled['Optical_Depth_Ratio_Small_Ocean_0.55micron'][highest_qf])
         ae_ocean.extend(scaled['Angstrom_Exponent_1_Ocean'][highest_qf])
     
@@ -202,7 +202,6 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
     
     # Get fine mode fraction for both land and ocean
     fmf = fmf_land
-    print(fmf[(fmf<0)|(fmf>1)])
     fmf[fmf_land < 0] = fmf_ocean[fmf_land < 0]
      
     # Put all of the fields into one structured array
@@ -210,7 +209,7 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
                             ('LTTD', lat.dtype), ('TIME', time.dtype),
                             ('STLT_IDNY', sat_idny.dtype), ('ARSL_TYPE', asl_type.dtype),
                             ('AE_LAND', ae_land.dtype), ('SSA_LAND', ssa_land.dtype),
-                            ('FM_FRC_LAND', fmf_land.dtype),
+                            ('ARSL_SMAL_MODE_FRCN', fmf.dtype),
                             ('FM_FRC_OCEAN', fmf_ocean.dtype), ('AE_OCEAN', ae_ocean.dtype)])
     
     fields_arr = np.empty(len(lon), dtype = fields_type)

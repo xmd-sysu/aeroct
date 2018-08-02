@@ -12,7 +12,7 @@ try:
     import cPickle as pickle
 except ModuleNotFoundError:
     import pickle
-import numpy as np
+
 from aeroct import aeronet
 from aeroct import modis
 from aeroct import metum
@@ -116,7 +116,7 @@ def download_range(data_set, date_list, dl_dir=SCRATCH_PATH+'downloads/',
             modis_filepath = '{0}MODIS_{1}'.format(dl_dir, date)
             no_file = (not os.path.exists(filepath)) & (not os.path.exists(modis_filepath))
             
-        if no_file | (dl_again == True):
+        if no_file | dl_again:
             
             # Download and load data
             if data_set == 'aeronet':
@@ -145,3 +145,19 @@ def download_range(data_set, date_list, dl_dir=SCRATCH_PATH+'downloads/',
             with open(filepath, 'w') as w:
                 print('Saving data to {0}'.format(filepath))
                 pickle.dump(dl_data, w, -1)
+
+
+def flattend_3D_grid(x, y, z):
+    '''
+    Produce a grid for 3 axes, similarly to np.meshgrid. This is then flattened
+    '''
+    len1, len2, len3 = len(x), len(y), len(z)
+    x = x.reshape(len1, 1, 1)
+    y = y.reshape(1, len2, 1)
+    z = z.reshape(1, 1, len3)
+    
+    X = x.repeat(len2, axis=1).repeat(len3, axis=2)
+    Y = y.repeat(len1, axis=0).repeat(len3, axis=2)
+    Z = z.repeat(len1, axis=0).repeat(len2, axis=1)
+    
+    return X.flatten(), Y.flatten(), Z.flatten()

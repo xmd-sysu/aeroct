@@ -69,22 +69,6 @@ def load_files(date, forecast_time, src_path=None):
     return aod_cube
 
 
-def flattend_3D_grid(x, y, z):
-    '''
-    Produce a grid for 3 axes, similarly to np.meshgrid. This is then flattened
-    '''
-    len1, len2, len3 = len(x), len(y), len(z)
-    x = x.reshape(len1, 1, 1)
-    y = y.reshape(1, len2, 1)
-    z = z.reshape(1, 1, len3)
-    
-    X = x.repeat(len2, axis=1).repeat(len3, axis=2)
-    Y = y.repeat(len1, axis=0).repeat(len3, axis=2)
-    Z = z.repeat(len1, axis=0).repeat(len2, axis=1)
-    
-    return X.flatten(), Y.flatten(), Z.flatten()
-
-
 def process_data(aod_cube, date, forecast_time):
     '''
     Process the AOD data from an iris cube into a list that may be passed into a

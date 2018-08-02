@@ -549,10 +549,6 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
         
         [aod, std, num, time_diff, lon, lat, time] = param012
         
-        # Convert aod_type to int for the MatchFrame
-        if aod_type == 'total': aod_type = 0
-        elif aod_type == 'dust': aod_type = 1
-        
         return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
                           match_rad, df1.wavelength, forecasts, data_sets, aod_type)
     
@@ -563,7 +559,7 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
         [aod, std, num, time_diff, lon, lat, time] = params
         
         return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time, match_rad,
-                          df1.wavelength, forecasts, data_sets, aod_type=1)
+                          df1.wavelength, forecasts, data_sets, aod_type='dust')
     
     # Same as above but the other way around
     elif (df1.data_set == 'aeronet') & (df2.cube != None):
@@ -576,7 +572,7 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
         [aod, std, num, time_diff, lon, lat, time] = param012
         
         return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time, match_rad,
-                          df1.wavelength, forecasts, data_sets, aod_type=1)
+                          df1.wavelength, forecasts, data_sets, aod_type='dust')
     
     # Model-Satellite match-up
     elif (df1.cube != None) & (df2.cube is None):
@@ -585,7 +581,7 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
         [aod, std, num, time_diff, lon, lat, time] = params
         
         return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
-                          2 * match_rad, df1.wavelength, forecasts, data_sets, aod_type=1)
+                          2 * match_rad, df1.wavelength, forecasts, data_sets, aod_type='dust')
     
     # Same as above but the other way around
     elif (df1.cube is None) & (df2.cube != None):
@@ -598,7 +594,7 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
         [aod, std, num, time_diff, lon, lat, time] = param012
         
         return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
-                          2 * match_rad, df1.wavelength, forecasts, data_sets, aod_type=1)
+                          2 * match_rad, df1.wavelength, forecasts, data_sets, aod_type='dust')
     
     # Model-Model match-up
     elif (df1.cube != None) & (df2.cube != None):
@@ -632,7 +628,7 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
         cube.data = cube_data   # Cube with data of df2 - df1
         
         return MatchFrame(aod, std, num, time_diff, lon_f, lat_f, times, df1.date, None, None,
-                          df1.wavelength, forecasts, data_sets, aod_type=1, cube=cube)
+                          df1.wavelength, forecasts, data_sets, aod_type='dust', cube=cube)
     
     else:
         raise ValueError('Unrecognised data frame types.')
