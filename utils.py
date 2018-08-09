@@ -230,10 +230,17 @@ def get_match_list(data_set2, date_list, data_set1='aeronet', save=True, dir_pat
             fc_str = ''
         data_set_names.append(data_set + fc_str)
     
+    # AOD type letter for filenames
+    if ('metum' in [data_set1, data_set2]) | (aod_type == 'dust'):
+        aod_s = 'd'
+    else:
+        aod_s = 't'
+    
     # Subdirectories
     if subdir:
-        subdir_path = '{0}-{1}-{2}/'.format(data_set_names[1], data_set_names[0],
-                                            aod_type[0])
+        subdir_path = '{0}-{1}-{2}/'.format(data_set_names[1], data_set_names[0], aod_s)
+    else:
+        subdir_path = ''
     
     # Build the list of MatchFrames
     mf_list = []
@@ -242,7 +249,7 @@ def get_match_list(data_set2, date_list, data_set1='aeronet', save=True, dir_pat
         
         # Load pickled MatchFrame if it already exists
         filename0 = '{0}-{1}-{2}-{3}.pkl'.format(data_set_names[1], data_set_names[0],
-                                                 aod_type[0], date.strftime('%Y%m%d'))
+                                                 aod_s, date.strftime('%Y%m%d'))
         print(dir_path + subdir_path + 'pkl/' + filename0)
         if os.path.exists(dir_path + subdir_path + 'pkl/' + filename0) & (not dl_again):
             mf_list.append(aeroct.load_from_pickle(filename0,
