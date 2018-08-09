@@ -185,9 +185,9 @@ def get_match_list(data_set2, date_list, data_set1='aeronet', save=True, dir_pat
     dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
         The directory within which to save the match_frames.
     kwargs:
-    forecast_time = int (Default: 0)
+    forecast_time = int (Default: True)
         The forecast time if the chosen data-set2 is a model. (Only multiples of 3)
-    forecast_time1 = int (Default: 0)
+    forecast_time1 = int (Default: True)
         The forecast time if the chosen data-set1 is a model. (Only multiples of 3)
     match_time = int (Default: 30)
         The difference in time over which to match data (hours).
@@ -199,50 +199,54 @@ def get_match_list(data_set2, date_list, data_set1='aeronet', save=True, dir_pat
         If the data should be downloaded and matched again even if files for it exist.
     dl_dir : str (Default: '/scratch/{USER}/aeroct/downloads/')
         The directory within which to save downloaded data.
-    subdir : bool (Default: False)
+    subdir : bool (Default: True)
         If different datasets should be saved within subdirectories within 'dir_path'.
     '''
     
     if dir_path[-1] != '/': dir_path += '/'
     
     # kwargs
-    fc_time2 = kwargs.setdefault('forecast_time', 0)
-    fc_time1 = kwargs.setdefault('forecast_time1', 0)
+    fc_time2 = kwargs.setdefault('forecast_time', None)
+    fc_time1 = kwargs.setdefault('forecast_time1', None)
     match_time = kwargs.setdefault('match_time', 30)
     match_rad = kwargs.setdefault('match_rad', 25)
     aod_type = kwargs.setdefault('aod_type', 'total')
     dl_again = kwargs.setdefault('dl_again', False)
     dl_dir = kwargs.setdefault('dl_dir', SCRATCH_PATH+'downloads/')
-    subdir = kwargs.setdefault('subdir', False)
+    subdir = kwargs.setdefault('subdir', True)
     
-    if subdir & (data_set1 == 'aeronet'):
-        if data_set2 == 'modis_a':
-            dir_path += 'MODIS_Aqua_{0}/'.format(aod_type[0])
-        elif data_set2 == 'modis_t':
-            dir_path += 'MODIS_Terra_{0}/'.format(aod_type[0])
-        elif data_set2 == 'modis':
-            dir_path += 'MODIS_{0}/'.format(aod_type[0])
+    if (data_set1 == 'metum') & (fc_time1 is None):
+        raise ValueError('Data set 1 requires a forecast time, none given.')
+    if (data_set2 == 'metum') & (fc_time2 is None):
+        raise ValueError('Data set 2 requires a forecast time, none given.')
+    
+    # Put the forecast time onto the end of model data-set names for the filename
+    data_set_names = []
+    fc_times = [fc_time1, fc_time2]
+    for i, data_set in enumerate([data_set1, data_set2]):
+        if fc_times[i] is not None:
+            fc_str = str(int(fc_times[i])).zfill(3)
         else:
-            dir_path += 'UM{0:03d}/'.format(fc_time2)
+            fc_str = ''
+        data_set_names.append(data_set + fc_str)
+    
+    # Subdirectories
+    if subdir:
+        subdir_path = '{0}-{1}-{2}/'.format(data_set_names[1], data_set_names[0],
+                                            aod_type[0])
     
     # Build the list of MatchFrames
     mf_list = []
     for date in date_list:
         print('\nDate: {0}'.format(date.date()))
         
-        if data_set1 == 'metum':
-            ds1_str = '{0}{1:03d}'.format(data_set1, fc_time1) 
-        else:
-            ds1_str = data_set1
-        if data_set2 == 'metum':
-            ds2_str = '{0}{1:03d}'.format(data_set2, fc_time2) 
-        else:
-            ds2_str = data_set2
-        
         # Load pickled MatchFrame if it already exists
-        filename0 = '{0}-{1}_{2}.pkl'.format(ds2_str, ds1_str, date.strftime('%Y%m%d'))
-        if os.path.exists(dir_path + 'pkl/' + filename0) & (not dl_again):
-            mf_list.append(aeroct.load_from_pickle(filename0, dir_path+'pkl/'))
+        filename0 = '{0}-{1}-{2}-{3}.pkl'.format(data_set_names[1], data_set_names[0],
+                                                 aod_type[0], date.strftime('%Y%m%d'))
+        print(dir_path + subdir_path + 'pkl/' + filename0)
+        if os.path.exists(dir_path + subdir_path + 'pkl/' + filename0) & (not dl_again):
+            mf_list.append(aeroct.load_from_pickle(filename0,
+                                                   dir_path+subdir_path+'pkl/'))
         
         else:
             df1 = aeroct.load(data_set1, date, forecast_time=fc_time1, dl_dir=dl_dir,
@@ -251,7 +255,7 @@ def get_match_list(data_set2, date_list, data_set1='aeronet', save=True, dir_pat
                               dl_again=dl_again)
             
             mf = aeroct.collocate(df1, df2, match_time, match_rad, aod_type=aod_type,
-                                  save=save, dir_path=dir_path)
+                                  save=save, dir_path=dir_path, save_subdir=subdir)
             mf_list.append(mf)
     
     return mf_list

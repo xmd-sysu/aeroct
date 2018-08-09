@@ -28,11 +28,16 @@ MODIS_DUST_FILTERS = [['ARSL_TYPE_LAND'],['AE_LAND', 'SSA_LAND'],
                       ['FM_FRC_OCEAN', 'AE_OCEAN', 'EFF_RAD_OCEAN', 'MASS_CONC', 'REGION_OCEAN']]
 
 # How to output the names of the data sets
-print_name = {'aeronet': 'AERONET',
+ds_printname = {'aeronet': 'AERONET',
               'modis': 'MODIS',
               'modis_t' : 'MODIS Terra',
               'modis_a' : 'MODIS Aqua',
               'metum': 'Unified Model'}
+ds_filename = {'aeronet': 'AERONET',
+               'modis': 'MODIS',
+               'modis_t' : 'MODIS_Terra',
+               'modis_a' : 'MODIS_Aqua',
+               'metum': 'Unified_Model'}
 
 def set_dust_filters(dust_filters):
     '''
@@ -208,7 +213,7 @@ class DataFrame():
         self.wavelength = wavelength                # [nm]
         self.data_set   = data_set                  # The name of the data set
         self.forecast_time = kwargs.setdefault('forecast_time', None)  # [hours]
-        self.name = print_name[data_set]
+        self.name = ds_printname[data_set]
         if self.forecast_time is not None:
             self.name += ' (Lead time: {0} hours)'.format(int(self.forecast_time))
         
@@ -538,22 +543,22 @@ class MatchFrame():
         extracted from another DataFrame and the bounds used.
     num : int
         The total number of matched-up data points.
-    RMS : float
+    rms : float
         The root mean square value of the data: sqrt(mean((data[1] - data[0])**2)).
-    BIAS_MEAN : float
+    bias_mean : float
         The mean bias between the data: mean(data[1] - data[0]).
-    BIAS STD : float
+    bias_std : float
         The standard deviation of the bias between the data: std(data[1] - data[0]).
-    R2 : float
+    r2 : float
         The coefficient of determination for the correlation to the y=x line.
-    R_INTERCEPT, R_SLOPE : float
+    r_intercept, r_slope : float
         The linear regression coefficients for the data. 
-    R : float
+    r : float
         The Pearson's correlation coefficient for the linear regression.
-    LOG_R_INTERCEPT, LOG_R_SLOPE : float
+    log_r_intercept, log_r_slope : float
         The regression coefficients when fitting to the log of the data.
-        ie. log10(y) = LOG_R_INTERCEPT + log10(x) * LOG_R_SLOPE
-    LOG_R : float
+        ie. log10(y) = log_r_intercept + log10(x) * log_r_slope
+    log_r : float
         The Pearson's correlation coefficient for the logarithmic regression.
     
     -------
@@ -643,7 +648,7 @@ class MatchFrame():
         self.cube = kw.setdefault('cube', None)    # Contains AOD difference for a model-model match
         self.names = ['', '']
         for i in [0,1]:
-            self.names[i] = print_name[data_sets[i]]
+            self.names[i] = ds_printname[data_sets[i]]
             if self.forecast_times[i] is not None:
                 self.names[i] += ' (LT: {0:03d})'.format(int(self.forecast_times[i]))
         self.additional_data = kw.setdefault('additional_data', [])
@@ -712,7 +717,7 @@ class MatchFrame():
     
     
     def dump(self, filename=None, dir_path=SCRATCH_PATH+'match_frames/',
-             filetype='pickle'):
+             filetype='pickle', subdir=True):
         '''
         Save the data frame as a file in the chosen location if the file already exists
         it will be overwritten. The filepath is returned. Note that only pickle files can
@@ -721,15 +726,31 @@ class MatchFrame():
         
         Parameters
         ----------
-        filename : str, optional (Default: '{data sets}_YYYYMMDD')
+        filename : str, optional (Default: '{dataset2}-{dataset1}-{aod-type}-YYYYMMDD')
             What to name the saved file.
         dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
             The path to the directory where the file will be saved.
         filetype : {'pickle', 'csv'}, optional (Default: 'pickle')
             The type of file to save. This will add a file extension.
+        subdir : bool, optional (Default: True)
+            Whether to save the MatchFrames within sub-directories.
         '''
         if dir_path[-1] != '/': dir_path += '/'
-         
+        
+        # Put the forecast time onto the end of model data-set names for the filename
+        data_set_names = []
+        for i, data_set in enumerate(self.data_sets):
+            if self.forecast_times[i] is not None:
+                fc_str = str(int(self.forecast_times[i])).zfill(3)
+            else:
+                fc_str = ''
+            data_set_names.append(data_set + fc_str)
+        
+        # Subdirectories
+        if subdir:
+            dir_path += '{0}-{1}-{2}/'.format(data_set_names[1], data_set_names[0],
+                                              self.aod_type[0])
+        
         # File extension
         if filetype == 'pickle':
             dir_path += 'pkl/'
@@ -742,21 +763,8 @@ class MatchFrame():
         
         # Create the filename
         if filename is None:
-            
-            if type(self.data_sets) == tuple:
-                # Put the forecast time onto the end of model data-set names
-                data_set_names = []
-                for i, data_set in enumerate(self.data_sets):
-                    if self.forecast_times[i] is not None:
-                        fc_str = str(int(self.forecast_times[i])).zfill(3)
-                    else:
-                        fc_str = ''
-                    data_set_names.append(data_set + fc_str)
-                
-                filename = '{0}-{1}_{2}'.format(data_set_names[1], data_set_names[0],
-                                                self.date.strftime('%Y%m%d'))
-            else:
-                raise ValueError('Cannot create filename - data_sets attribute invalid.')
+            filename = '{0}-{1}-{2}-{3}'.format(data_set_names[1], data_set_names[0],
+                                        self.aod_type[0], self.date.strftime('%Y%m%d'))
         
         filepath = dir_path + filename + file_ext
         os.system('touch {0}'.format(filepath))
@@ -900,12 +908,7 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
     if isinstance(date, datetime):
         date = date.strftime('%Y%m%d')
     
-    ds_names = {'aeronet': 'AERONET',
-                'modis': 'MODIS',
-                'modis_t' : 'MODIS_Terra',
-                'modis_a' : 'MODIS_Aqua',
-                'metum': 'Unified_Model'}
-    ds_name = ds_names[data_set]
+    ds_name = ds_filename[data_set]
     
     if data_set == 'aeronet':
         print('-----------AERONET-----------')

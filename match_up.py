@@ -534,7 +534,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist, min_points=2, limits=(-1
 
 
 def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='total',
-              save=True, dir_path=SCRATCH_PATH+'match_frames/'):
+              save=True, dir_path=SCRATCH_PATH+'match_frames/', save_subdir=True):
     '''
     This matches up elements in time and space from two data frames with the same date
     and wavelength. The outputs are new data frames containing the averaged AOD data
@@ -561,8 +561,9 @@ def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='to
         Choose whether to save the resulting MatchFrame as both a csv file and a pickled
         object.
     dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
-        The path to the directory where the MatchFrame will be saved. The pickled object
-        will be saved within a sub-directory.
+        The path to the directory where the MatchFrame will be saved.
+    save_subdir : bool, optional (Default: True)
+        Choose whether to save within sub-directories.
     '''
     print('Match-up...', end='')
     
@@ -683,8 +684,8 @@ def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='to
     
     # Save MatchFrame
     if save:
-        mf.dump(dir_path=dir_path, filetype='csv')
-        mf.dump(dir_path=dir_path, filetype='pickle')
+        mf.dump(dir_path=dir_path, filetype='csv', subdir=save_subdir)
+        mf.dump(dir_path=dir_path, filetype='pickle', subdir=save_subdir)
     
     return mf
     
