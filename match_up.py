@@ -9,14 +9,15 @@ Created on Jun 27, 2018
 TODO: Add regridding of one cube to the other in model-model match-up
 '''
 from __future__ import division, print_function
+import os
 import warnings
 import numpy as np
-from matplotlib import pyplot as plt
 from scipy.spatial import cKDTree
 from aeroct.data_frame import MatchFrame
 
 div0 = lambda a, b: np.divide(a, b, out=np.zeros_like(a), where=(b != 0))
 
+SCRATCH_PATH = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
 
 def getnn(d1, d2, r, k=5):
     """
@@ -65,6 +66,46 @@ def getnn(d1, d2, r, k=5):
     t = cKDTree(d1)
     d, idx = t.query(d2, k=k, eps=0, p=2, distance_upper_bound=r)
     return idx, d
+
+
+def flattend_3D_grid(x, y, z):
+    '''
+    Produce a grid for 3 axes, similarly to np.meshgrid. This is then flattened
+    '''
+    len1, len2, len3 = len(x), len(y), len(z)
+    x = x.reshape(len1, 1, 1)
+    y = y.reshape(1, len2, 1)
+    z = z.reshape(1, 1, len3)
+    
+    X = x.repeat(len2, axis=1).repeat(len3, axis=2)
+    Y = y.repeat(len1, axis=0).repeat(len3, axis=2)
+    Z = z.repeat(len1, axis=0).repeat(len2, axis=1)
+    
+    return X.flatten(), Y.flatten(), Z.flatten()
+
+
+def match_to_site(df, site_ll, aod_type=None, match_dist=25):
+    '''
+    Given a data-frame and a sites latitude and longitude, return the AOD measurements
+    nearby and the corresponding times.
+    '''
+    # Convert match_dist from km into degrees
+    match_dist = np.arcsin(match_dist / 6371) * 180 / np.pi
+    
+    aod, lon, lat, times = df.get_data(aod_type)
+    if df.cube is not None:
+        lon, lat = np.meshgrid(lon, lat)
+        lon = lon.flatten()
+        lat = lat.flatten()
+        aod = aod.flatten()
+    
+    # Get the indices of all (100000 max) the data points near to the site
+    df_ll = np.array(zip(lon,lat))
+    idx = getnn(df_ll, site_ll, match_dist, k=100000)[0]
+    idx = idx[idx < lon.size]
+    
+    # Return the nearby data
+    return aod[idx], times[idx]
 
 
 def sat_anet_match(df_s, df_a, match_time, match_rad, min_points=2, aod_type='total'):
@@ -443,7 +484,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist, min_points=2, limits=(-1
         lon_ID = np.cumsum(lon_uniq_mask) - 1
         lat_ID = np.cumsum(lat_uniq_mask) - 1
         ll_ID = (lon_ID + lat_ID[:, np.newaxis] * (np.max(lon_ID) + 1)).ravel()
-         
+        
         # Average and std of each grid cell
         m_aod_avg_t = div0(np.bincount(ll_ID, m_aod_t), np.bincount(ll_ID))
         m_aod_std_t = np.sqrt(np.abs(div0(np.bincount(ll_ID, m_aod_t**2),
@@ -467,7 +508,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist, min_points=2, limits=(-1
         m_aod_avg_t = m_aod_avg_t[in_loc_t]
         m_aod_std_t = m_aod_std_t[in_loc_t]
         m_aod_num_t = m_aod_num_t[in_loc_t]
-         
+        
         # APPEND THE DATA
         lons.extend(lons_t)
         lats.extend(lats_t)
@@ -492,14 +533,15 @@ def model_sat_match(df_m, df_s, match_time, match_dist, min_points=2, limits=(-1
             lons[r], lats[r], times_arr[r]]
 
 
-def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='total'):
+def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='total',
+              save=True, dir_path=SCRATCH_PATH+'match_frames/'):
     '''
     This matches up elements in time and space from two data frames with the same date
     and wavelength. The outputs are new data frames containing the averaged AOD data
     matched up over area and time. By default the matching up is performed over a 30
     minute time frame and a radius of 25 km.
-    NOTE: match_rad is converted to degrees and a circle of latitudes and longitudes are
-    used. Therefore not all the data within match_rad may cause a match near the poles.
+    NOTE: match_dist is converted to degrees and a circle of latitudes and longitudes are
+    used. Therefore not all the data within match_dist may cause a match near the poles.
     
     Parameters
     ----------
@@ -507,7 +549,7 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
         The two data frames to match up.
     match_time : float, optional (Default: 30 (minutes))
         The time over which data will be matched and averaged in minutes.
-    match_rad : int, optional (Default: 25 (km))
+    match_dist : int, optional (Default: 25 (km))
         The distance for which data will be matched and averaged in kilometers.
     min_points : int, optional (Default: 2)
         The minimum number of points from both df1 and df2 in a given matched data point
@@ -515,7 +557,14 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
     aod_type : {'total', 'dust'}, optional (Default: 'total')
         For satellite-AERONET match-ups this determines which type of AOD data should be
         returned in the matched-up data-frame.
+    save : bool, optional (Default: True)
+        Choose whether to save the resulting MatchFrame as both a csv file and a pickled
+        object.
+    dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
+        The path to the directory where the MatchFrame will be saved. The pickled object
+        will be saved within a sub-directory.
     '''
+    print('Match-up...', end='')
     
     forecasts = (df1.forecast_time, df2.forecast_time)
     data_sets = (df1.data_set, df2.data_set)
@@ -526,16 +575,17 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
         raise ValueError('The wavelengths of the data frames do not match.')
     
     # Convert match_dist from km into degrees
-    match_rad = np.arcsin(match_rad / 6371) * 180 / np.pi
+    match_dist_km = match_dist
+    match_dist = np.arcsin(match_dist / 6371) * 180 / np.pi
     
     # Satellite-AERONET match-up
     if (df1.cube is None) & (df2.cube is None):
         
         if df2.data_set == 'aeronet':
-            params = sat_anet_match(df1, df2, match_time, match_rad, min_points, aod_type)
+            params = sat_anet_match(df1, df2, match_time, match_dist, min_points, aod_type)
             
         elif df1.data_set == 'aeronet':
-            params = sat_anet_match(df2, df1, match_time, match_rad, min_points, aod_type)
+            params = sat_anet_match(df2, df1, match_time, match_dist, min_points, aod_type)
             param012 = [params[i][::-1] for i in range(3)]
             param3 = -1 * params[3]
             param012.append(param3)
@@ -543,21 +593,22 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
         
         [aod, std, num, time_diff, lon, lat, time] = param012
         
-        return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
-                          match_rad, df1.wavelength, forecasts, data_sets, aod_type)
+        mf = MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
+                        match_dist_km, df1.wavelength, forecasts, data_sets, aod_type)
     
     # Model-AERONET match-up
     elif (df1.cube != None) & (df2.data_set == 'aeronet'):
-        params = model_anet_match(df1, df2, match_time, match_rad, min_points)
+        params = model_anet_match(df1, df2, match_time, match_dist, min_points)
         
         [aod, std, num, time_diff, lon, lat, time] = params
         
-        return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time, match_rad,
-                          df1.wavelength, forecasts, data_sets, aod_type='dust')
+        mf =  MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
+                         match_dist_km, df1.wavelength, forecasts, data_sets,
+                         aod_type='dust')
     
     # Same as above but the other way around
     elif (df1.data_set == 'aeronet') & (df2.cube != None):
-        params = model_anet_match(df2, df1, match_time, match_rad)
+        params = model_anet_match(df2, df1, match_time, match_dist)
         param012 = [params[i][::-1] for i in range(3)]
         param3 = -1 * params[3]
         param012.append(param3)
@@ -565,21 +616,22 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
         
         [aod, std, num, time_diff, lon, lat, time] = param012
         
-        return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time, match_rad,
-                          df1.wavelength, forecasts, data_sets, aod_type='dust')
+        mf =  MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
+                         match_dist_km, df1.wavelength, forecasts, data_sets,
+                         aod_type='dust')
     
     # Model-Satellite match-up
     elif (df1.cube != None) & (df2.cube is None):
-        params = model_sat_match(df1, df2, match_time, match_rad, min_points)
+        params = model_sat_match(df1, df2, match_time, match_dist, min_points)
         
         [aod, std, num, time_diff, lon, lat, time] = params
         
-        return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
-                          2 * match_rad, df1.wavelength, forecasts, data_sets, aod_type='dust')
+        mf = MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
+                        match_dist_km, df1.wavelength, forecasts, data_sets, aod_type='dust')
     
     # Same as above but the other way around
     elif (df1.cube is None) & (df2.cube != None):
-        params = model_sat_match(df2, df1, match_time, match_rad, min_points)
+        params = model_sat_match(df2, df1, match_time, match_dist, min_points)
         param012 = [params[i][::-1] for i in range(3)]
         param3 = -1 * params[3]
         param012.append(param3)
@@ -587,8 +639,8 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
         
         [aod, std, num, time_diff, lon, lat, time] = param012
         
-        return MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
-                          2 * match_rad, df1.wavelength, forecasts, data_sets, aod_type='dust')
+        mf = MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
+                        match_dist_km, df1.wavelength, forecasts, data_sets, aod_type='dust')
     
     # Model-Model match-up
     elif (df1.cube != None) & (df2.cube != None):
@@ -621,8 +673,26 @@ def collocate(df1, df2, match_time=30, match_rad=25, min_points=2, aod_type='tot
         cube = df1.cube[times1_idx]
         cube.data = cube_data   # Cube with data of df2 - df1
         
-        return MatchFrame(aod, std, num, time_diff, lon_f, lat_f, times, df1.date, None, None,
-                          df1.wavelength, forecasts, data_sets, aod_type='dust', cube=cube)
+        mf = MatchFrame(aod, std, num, time_diff, lon_f, lat_f, times, df1.date, None, None,
+                        df1.wavelength, forecasts, data_sets, aod_type='dust', cube=cube)
     
     else:
         raise ValueError('Unrecognised data frame types.')
+    
+    print('Complete.')
+    
+    # Save MatchFrame
+    if save:
+        mf.dump(dir_path=dir_path, filetype='csv')
+        mf.dump(dir_path=dir_path, filetype='pickle')
+    
+    return mf
+    
+
+if __name__ == '__main__':
+    Lon1 = np.random.random(2000)
+    Lat1 = np.random.random(2000)
+    d1 = np.asarray(zip(Lon1, Lat1))
+    d2 = np.array([0.5, 0.3])
+    i, d = getnn(d1, d2, 0.1, k=3)
+    print(d1[i])

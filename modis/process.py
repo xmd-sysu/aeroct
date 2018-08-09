@@ -41,9 +41,9 @@ def process_data(aod_array, date, satellite='Both', src=None):
     elif satellite == 'Aqua':
         chosen_sat = aod_array['STLT_IDNY'] == 784
     else:
-        chosen_sat = True
-    not_mask = aod_array['AOD_NM550'] > -0.05001
-    condition = chosen_sat & not_mask
+        chosen_sat = np.full_like(aod_array['STLT_IDNY'], True)
+    not_mask = (aod_array['AOD_NM550'] > -0.05001) & (aod_array['ARSL_SMAL_MODE_FRCN'] > 0)
+    condition = np.logical_and(chosen_sat, not_mask)
     aod_array = aod_array[condition]
     
     aod_t = aod_array['AOD_NM550']   # Total AOD
@@ -69,8 +69,11 @@ def process_data(aod_array, date, satellite='Both', src=None):
         filter_type_land = (aod_array['ARSL_TYPE'] == 5)
         filter_ae_land = (aod_array['AE_LAND'] > - 0.1) & (aod_array['AE_LAND'] <= 0.6)
         filter_ssa_land = (0.878 < aod_array['SSA_LAND']) & (aod_array['SSA_LAND'] < 0.955)
-        filter_fm_frc_ocean = (aod_array['FM_FRC_OCEAN'] >= 0) & (aod_array['FM_FRC_OCEAN'] <= 0.45)
-        filter_ae_ocean = (aod_array['AE_OCEAN'] > - 0.1) & (aod_array['AE_OCEAN'] <= 0.6)
+        filter_fm_frc_ocean = (aod_array['FM_FRC_OCEAN'] >= 0) & \
+                              (aod_array['FM_FRC_OCEAN'] <= 0.45)
+        filter_ae_ocean = (aod_array['AE_OCEAN'] > - 0.1) & (aod_array['AE_OCEAN'] <= 0.5)
+        filter_er_ocean = (aod_array['EFF_RAD_OCEAN'] > 1)
+        filter_mc_ocean = (aod_array['MASS_CONC'] >= 1.2)
         
         filter_region_mask_ocean = (aod_array['FM_FRC_OCEAN'] >= 0) & \
                     (((aod_array['LNGD'] >= -90) & (aod_array['LNGD'] <= 78) &
@@ -84,6 +87,8 @@ def process_data(aod_array, date, satellite='Both', src=None):
                    'SSA_LAND' : filter_ssa_land,
                    'FM_FRC_OCEAN' : filter_fm_frc_ocean,
                    'AE_OCEAN' : filter_ae_ocean,
+                   'EFF_RAD_OCEAN' : filter_er_ocean,
+                   'MASS_CONC' : filter_mc_ocean,
                    'REGION_OCEAN' : filter_region_mask_ocean,
                    'NONE': np.full_like(filter_type_land, True)}
     

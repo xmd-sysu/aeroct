@@ -15,7 +15,7 @@ from __future__ import division
 from datetime import datetime
 import numpy as np
 import matplotlib
-from matplotlib import pyplot as plt, cm, animation, widgets, patches
+from matplotlib import pyplot as plt, cm, animation, widgets, patches, dates as mdates
 import cartopy.crs as ccrs
 from scipy.interpolate import griddata
 from scipy.interpolate.interpnd import _ndim_coords_from_arrays
@@ -26,6 +26,7 @@ import aeroct
 
 # Suppress warnings from importing iris.plot in python 2
 import warnings
+from __builtin__ import isinstance
 try:
     from matplotlib.cbook.deprecation import mplDeprecation
     with warnings.catch_warnings():
@@ -105,7 +106,7 @@ def shiftedColorMap(cmap, data, vmin=None, vmax=None, midpoint=0, name='shiftedc
     return newcmap
 
 
-def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
+def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
              show=True, grid_size=0.5, vmin=None, vmax=None):
     '''
     For DataFrames this function will plot the daily average of the AOD at individual
@@ -117,7 +118,7 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
     Parameters
     ----------
     df : AeroCT DataFrame / MatchFrame, or list of DataFrames / MatchFrames
-    data_type : {None, 'total' or 'dust'} (Default: None)
+    aod_type : {None, 'total' or 'dust'} (Default: None)
         This describes which AOD data to plot if the data frame is a DataFrame instance.
         If None is chosen and the data frame only includes a single type of AOD then that
         will be plotted. If it includes both then the total AOD will be plotted. If an
@@ -153,8 +154,8 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
     plt.xlim(lon)
     plt.ylim(lat)
     
-    data_frame_cmap = cm.get_cmap('Oranges')
-    match_frame_cmap = cm.get_cmap('RdBu_r')
+    data_frame_cmap = cm.get_cmap('inferno_r')
+    match_frame_cmap = cm.get_cmap('RdYlBu_r')
     
     # USE IRIS PLOT IF THERE IS A CUBE IN THE DATA FRAME
     if type(df.cube) != type(None):
@@ -178,7 +179,7 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
         plt.title('{0}: AOD mean for {1}'.format(df.name, date))
         
         # Select the total or dust AOD data which is in the given bounds
-        aod, lons, lats = df.get_data(data_type)[:3]
+        aod, lons, lats = df.get_data(aod_type)[:3]
         in_bounds = (lon[0] < lons) & (lons < lon[1]) & (lat[0] < lats) & (lats < lat[1])
         aod = aod[in_bounds]
         lons = lons[in_bounds]
@@ -199,7 +200,7 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
         
         # PLOT THE AOD AT EVERY DATA POINT
         elif plot_type == 'scatter':
-            plt.scatter(lons, lats, c=aod, marker='o', s=(72./fig.dpi)**2,
+            plt.scatter(lons, lats, c=aod, marker='o', s=(50./fig.dpi)**2,
                         vmin=vmin, vmax=vmax)
         
         # OTHERWISE PLOT A GRID
@@ -234,13 +235,13 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
         lons = df.longitudes[in_bounds]
         lats = df.latitudes[in_bounds]
         
-        if data_type == 'time diff':
+        if aod_type == 'time diff':
             data = df.time_diff[in_bounds]
-            plt.title('Time difference (mean) : {0} - {1} for {2}'\
+            plt.title('Time difference (mean) ({0} - {1}) for {2}'\
                       .format(df.names[1], df.names[0], date))
         else:
             data = df.data[1, in_bounds] - df.data[0, in_bounds]
-            plt.title('AOD difference (mean) : {0} - {1} for {2}'\
+            plt.title('AOD difference (mean) ({0} - {1}) for {2}'\
                       .format(df.names[1], df.names[0], date))
         
         # If AERONET is included plot the sites on a map
@@ -255,7 +256,7 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
             # Shift colour map to have a midpoint of zero
             cmap = shiftedColorMap(match_frame_cmap, site_data_avg, vmin, vmax)
             
-            plt.scatter(site_lons, site_lats, c=site_data_avg, s=100, cmap=cmap,
+            plt.scatter(site_lons, site_lats, c=site_data_avg, s=(500/fig.dpi)**2, cmap=cmap,
                         vmin=vmin, vmax=vmax)
         
         # OTHERWISE PLOT A GRID
@@ -295,7 +296,8 @@ def plot_map(df, data_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolor
         return fig
 
 
-def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold=400, **kwargs):
+def scatterplot(df, stats=True, scale='log', xlim=(None, None), ylim=(None, None),
+                show=True, error=True, hm_threshold=400, grid_cells=None, **kwargs):
     '''
     This is used to plot AOD data from two sources which have been matched-up on a
     scatter plot. The function returns the figure if show=True.
@@ -306,9 +308,11 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
         The data frame containing collocated data for a day.
     stats : bool, optional (Default: True)
         Choose whether to show statistics on the plot.
-    scale: {'log', 'linear', 'bins'}, optional (Default: 'log')
+    scale : {'log', 'linear', 'bins'}, optional (Default: 'log')
         Choose whether to plot the data on a log scale (if so anything below 1e-4 is not
         displayed).
+    xlim, ylim : float tuple (Defaults: (None, None))
+        Limits for the plot. By default it autoscales to the data.
     show : bool, optional (Default: True)
         If True, the plot is shown otherwise the figure is passed as an output.    
     error : bool, optional (Default: True)
@@ -316,6 +320,9 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
     hm_threshold : int, optional (Default: 400)
         The threshold of number of data points above which a heat map will be plotted
         instead of a scatter plot.
+    grid_cells : int, optional (Default: None)
+        This changes the number of grid cellsalong an axis for a heatmap and the
+        histograms. If None this is calculated by: 20 * (num of matches)**0.2
     **kwargs : optional
         Arguments for the style of the scatter plot. By default c='r', marker='o',
         linestyle='None' and, if error=True, ecolor='gray'.
@@ -324,20 +331,16 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
         df = aeroct.concatenate_data_frames(df)
         date_str = '{0} to {1}'.format(df.date[0].date(), df.date[-1].date())
     else:
-        date_str = '{0}'.format(df.date[0].date())
+        date_str = '{0}'.format(df.date.date())
     
     if (df.__class__.__name__ != 'MatchFrame') | (len(df.data_sets) != 2):
         raise ValueError('The data frame is unrecognised. It must be collocated data \
                          from two data sets.')
     
-    
-    xlim = kwargs.setdefault('xlim', (None, None))
-    ylim = kwargs.setdefault('ylim', (None, None))
-    
     # Plot a heat map if there are more data points than hm_threshold
     heatmap = (df.data[0].size > hm_threshold)
     
-    fig = plt.figure()
+    fig = plt.figure(figsize=(8,8))
     
     # Axes locations and sizes
     x0, y0 = 0.13, 0.08
@@ -358,25 +361,30 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
     # Grid cell boundaries for heat-map / histograms
     if xlim[0] is None:
         xmax = np.max(df.data[0])
-        xmin = 1e-4 if (np.min(df.data[0]) < 1e-4) else np.min(df.data[0])
+        data_min = np.min(df.data[0, df.data[0] > 1e-6])
+        xmin = 1e-3 if (data_min < 1e-3) else data_min
     else:
         xmax = xlim[1]
-        xmin = 1e-4 if (xlim[0] < 1e-4) else xlim[0]
+        xmin = 1e-3 if (xlim[0] < 1e-3) else xlim[0]
     
     if ylim[0] is None:
         ymax = np.max(df.data[1])
-        ymin = 1e-4 if (np.min(df.data[1]) < 1e-4) else np.min(df.data[1])
+        data_min = np.min(df.data[1, df.data[1] > 1e-6])
+        ymin = 1e-3 if (data_min < 1e-3) else data_min
     else:
         ymax = ylim[1]
-        ymin = 1e-4 if (ylim[0] < 1e-4) else ylim[0]
+        ymin = 1e-3 if (ylim[0] < 1e-3) else ylim[0]
     
     # Grid cells
+    if grid_cells is None:
+        grid_cells = 20 * df.num ** 0.2
+    grid_cells += 1
     if (scale == 'log') | ((not heatmap) & (scale=='bins')):
-        x_grid = 10 ** np.linspace(np.log10(xmin), np.log10(xmax), 201)
-        y_grid = 10 ** np.linspace(np.log10(ymin), np.log10(ymax), 201)
+        x_grid = 10 ** np.linspace(np.log10(xmin), np.log10(xmax), grid_cells)
+        y_grid = 10 ** np.linspace(np.log10(ymin), np.log10(ymax), grid_cells)
     elif scale == 'linear':
-        x_grid = np.linspace(xmin, xmax, 101)
-        y_grid = np.linspace(ymin, ymax, 101)
+        x_grid = np.linspace(xmin, xmax, grid_cells)
+        y_grid = np.linspace(ymin, ymax, grid_cells)
     elif scale == 'bins':
         bins = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
         x_grid = np.array(bins)
@@ -400,7 +408,7 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
         heatmap_grid = np.histogram2d(df.data[0], df.data[1], [x_grid, y_grid])[0]
         heatmap_grid = np.ma.masked_where(heatmap_grid==0, heatmap_grid)
         
-        im = ax.pcolormesh(x_grid, y_grid, heatmap_grid.T, cmap='CMRmap')
+        im = ax.pcolormesh(x_grid, y_grid, heatmap_grid.T, cmap='CMRmap_r')
         plt.colorbar(im, cax=cax, orientation='horizontal')
     
     # Assign automatic limits now so that they do not fit to the lines
@@ -410,10 +418,12 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
         ylim = ax.get_ylim()
     
     x = np.linspace(1e-4, 10, 101)
-    y = df.R_INTERCEPT + x * df.R_SLOPE
-    LOG_R_SLOPE, LOG_R_INTERCEPT, LOG_R = \
-                linregress(np.log10(df.data[0]), np.log10(df.data[1]))[:3]
-    y_log = 10 ** (LOG_R_INTERCEPT + np.log10(x) * LOG_R_SLOPE)
+    y = df.r_intercept + x * df.r_slope
+    x_data = df.data[0][(df.data[0] > 0) & (df.data[1] > 0)]
+    y_data = df.data[1][(df.data[0] > 0) & (df.data[1] > 0)]
+    log_r_slope, log_r_intercept, log_r = \
+                linregress(np.log10(x_data), np.log10(y_data))[:3]
+    y_log = 10 ** (log_r_intercept + np.log10(x) * log_r_slope)
     
 #     ax.plot(x, y_log, 'g-.', lw=2, label='Regression') # Regression line
     ax.plot(x, x, c='gray', ls='--', lw=2, label='y = x') # y = x line
@@ -429,20 +439,28 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
         aod_src = {'metum' : '', 'modis': '', 'modis_t' : '', 'modis_a' : '', 'aeronet': ''}
     
     # Title, axes, and legend
-    if df.aod_type == 0:
-        aod_str = 'total AOD'
-    elif df.aod_type == 1:
-        aod_str = 'dust AOD'
-    title = 'Collocated {0} comparison for {1}'.format(aod_str, date_str)
+    if np.any([df.additional_data[i][:10]=='Extraction'
+               for i in range(len(df.additional_data))]):
+        rgn_str = 'Regional'
+    else:
+        rgn_str = 'Global'
+    if df.aod_type in ('total', 0):
+        aod_str = 'Total AOD'
+    elif df.aod_type in ('dust', 1):
+        aod_str = 'Dust AOD'
+    title = 'Collocated {0} {1} Comparison For {2}'.format(rgn_str, aod_str, date_str)
+    
     fig.text(0.5, (y1 + height + height2 + 0.03), title, ha='center', fontsize=14)
     ax.legend(loc=4)
     ax.set_xlabel('{0} AOD {1}'.format(df.names[0], aod_src[df.data_sets[0]]))
     ax.set_ylabel('{0} AOD {1}'.format(df.names[1], aod_src[df.data_sets[1]]))
+    if heatmap:
+        cax.set_xlabel('Match-ups in each cell')
     
     if scale=='log':
         ax.loglog()
-        xlim = (1e-4, xlim[1]) if (xlim[0] <= 1e-4) else xlim
-        ylim = (1e-4, ylim[1]) if (ylim[0] <= 1e-4) else ylim
+        xlim = (1e-3, xlim[1]) if (xlim[0] <= 1e-3) else xlim
+        ylim = (1e-3, ylim[1]) if (ylim[0] <= 1e-3) else ylim
     ax.set_xlim(xlim)
     ax.set_ylim(ylim)
     
@@ -460,19 +478,25 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
     # Stats
     if stats == True:
         box = dict(facecolor='w', edgecolor='w', pad=-0.75)
-        num_str = 'Num: {:d}'.format(df.data[0].size)
+        num_str = 'Num: {:d}'.format(df.num)
         plt.text(0.03, 0.94, num_str, fontsize=12, transform=ax.transAxes, bbox=box)
-        rms_str = 'RMS: {:.02f}'.format(df.RMS)
+        
+        rms_str = 'RMS: {:.02f}'.format(df.rms)
         plt.text(0.03, 0.88, rms_str, fontsize=12, transform=ax.transAxes, bbox=box)
-        bias_mean_str = 'Bias mean: {:.03f}'.format(df.BIAS_MEAN)
+        
+        bias_mean_str = 'Bias mean: {:.03f}'.format(df.bias_mean)
         plt.text(0.03, 0.82, bias_mean_str, fontsize=12, transform=ax.transAxes, bbox=box)
-        bias_std_str = 'Bias std: {:.03f}'.format(df.BIAS_STD)
+        
+        bias_std_str = 'Bias std: {:.03f}'.format(df.bias_std)
         plt.text(0.03, 0.76, bias_std_str, fontsize=12, transform=ax.transAxes, bbox=box)
-        r_str = 'Pearson R: {:.02f}'.format(df.R)
+        
+        r_str = 'Pearson R: {:.02f}'.format(df.r)
         plt.text(0.4, 0.94, r_str, fontsize=12, transform=ax.transAxes, bbox=box)
-        slope_str = 'Slope: {:.02f}'.format(df.R_SLOPE)
+        
+        slope_str = 'Slope: {:.02f}'.format(df.r_slope)
         plt.text(0.4, 0.88, slope_str, fontsize=12, transform=ax.transAxes, bbox=box)
-        intercept_str = 'Intercept: {:.02f}'.format(df.R_INTERCEPT)
+        
+        intercept_str = 'Intercept: {:.02f}'.format(df.r_intercept)
         plt.text(0.4, 0.82, intercept_str, fontsize=12, transform=ax.transAxes, bbox=box)
     
     if show == True:
@@ -482,7 +506,98 @@ def scatterplot(df, stats=True, scale='log', show=True, error=True, hm_threshold
         return fig
 
 
-def period_bias_plot(mf_list, xlim=None, ylim=None, show=True, **kw):
+def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None):
+    '''
+    Given a list containing MatchFrames a certain statistic is plotted over time.
+    Additionally multiple of these lists may be passed in which case they will be
+    plotted on the same axes.
+    
+    Parameters
+    ----------
+    mf_lists : list of MatchFrames (or list of MatchFrame lists)
+        A list may be obtained using the get_match_list() function. If a list of lists is
+        supplied then the individual lists will be plotted on the same axes. Note that
+        these lists should all have the same 'data set 1' or the plots title will be
+        inaccurate.
+    stat : str
+        This gives the type of statistic to plot over time. Options are:
+        'RMS' - Root mean square error
+        'Bias' - Daily AOD bias mean (data set 2 - data set 1) 
+        'R'- Pearson correlation coefficient to the regression line
+        'Number' - Number of daily match-ups
+    xlim : datetime tuple, optional (Default: None)
+        The limits for the date. If None then the axis is autoscaled to the data.
+    ylim : float tuple, optional (Default: None)
+        The limits for the AOD bias. If None then the axis is autoscaled to the data.
+    average_days : int, optional (Default: None)
+        The number of days over which to average the statistic for each plotted point.
+        If None then the total number of days is divided by 50 and rounded.
+    '''
+    if not isinstance(mf_lists[0], list):
+        mf_lists = [mf_lists]
+    
+    if average_days == None:
+        average_days = int(len(mf_lists[0]) / 50)
+        average_days = 1 if (average_days == 0) else average_days
+    
+    fig, ax = plt.subplots()
+    
+    for mf_list in mf_lists:
+        date_list = [mf.date for mf in mf_list]
+        
+        # Get the values of the statistic for every day
+        if stat == 'RMS':
+            stat_name = 'Root Mean Square'
+            stat_values = [mf.rms for mf in mf_list]
+        if stat == 'Bias':
+            stat_name = 'Mean Bias (data set 2 - data set 1)'
+            stat_values = [mf.bias_mean for mf in mf_list]
+            stat_errors = [mf.bias_std for mf in mf_list]
+        if stat == 'R':
+            stat_name = 'Pearson Correlation Coefficient'
+            stat_values = [mf.r for mf in mf_list]
+        if stat == 'Number':
+            stat_name = 'Number of Matched Points'
+            stat_values = [mf.num for mf in mf_list]
+        
+        # Average over a number of days
+        date_list_reduced = date_list[int(average_days/2)::average_days]
+        stat_mean, stat_err = aeroct.average_each_n_values(stat_values, average_days)
+        if stat == 'Bias':
+            stat_err = aeroct.average_each_n_values(stat_errors, average_days)[0]
+        
+        # Plot
+        if (len(mf_lists) == 1):
+            plt.errorbar(date_list_reduced, stat_mean, stat_err, ecolor='gray', elinewidth=0.5)
+        else:
+            plt.plot(date_list_reduced, stat_mean, label=mf.names[1])
+    
+    ax.set_xlim(ax.get_xlim())
+    ax.set_ylim(ax.get_ylim())
+    plt.hlines(0, datetime(1970,1,1), datetime(2100,1,1), linestyle='--', lw=0.5, zorder=-1)
+    
+    # Title and axes
+    plt.xlabel('Date')
+    plt.ylabel(stat_name)
+    ax.tick_params(direction='in', bottom=True, top=True, left=True, right=True)
+    title1 = 'Statistic Over Time For Collocated {0} AOD data'.format(mf.aod_type)
+    if len(mf_lists) > 1:
+        title2 = '\nData Set 1: {0}, Data Set 2: See Legend'.format(mf.names[0])
+    else:
+        title2 = '\nData Set 1: {0}, Data Set 2: {1}'.format(mf.names[0], mf.names[1])
+    plt.title(title1 + title2)
+    
+    # Format date axis
+    fig.autofmt_xdate()
+    dates_fmt = mdates.DateFormatter('%Y-%m-%d')
+    ax.xaxis.set_major_formatter(dates_fmt)
+    
+    if len(mf_lists) > 1:
+        plt.legend(loc='best')
+    plt.show()
+
+
+def period_bias_plot(mf_lists, xlim=None, ylim=None, show=True, **kw):
     '''
     Given a list containing MatchFrames the bias between the two sets of collocated AOD
     values are calculated. The mean bias for each day is plotted with an error bar
@@ -490,9 +605,10 @@ def period_bias_plot(mf_list, xlim=None, ylim=None, show=True, **kw):
     
     Parameters
     ----------
-    mf_list : iterable of MatchFrames
-        May be obtained using the period_download_and_match() function. The bias is
-        the second data set AOD subtract the first.
+    mf_lists : list of MatchFrames (or list of MatchFrame lists)
+        May be obtained using the get_match_list() function. The bias is the second data
+        set AOD subtract the first. If a list of lists then the individual lists will be
+        plotted on separate sub-plots.
     xlim : datetime tuple, optional (Default: None)
         The limits for the date. If None then the axis is autoscaled to the data.
     ylim : float tuple, optional (Default: None)
@@ -504,36 +620,57 @@ def period_bias_plot(mf_list, xlim=None, ylim=None, show=True, **kw):
         none are supplied then the following are used:
         fmt='b.', markersize=2, ecolor='gray', capsize=0.
     '''
-    bias_arrays = [mf.data[1] - mf.data[0] for mf in mf_list]
-    bias_mean = np.array([np.mean(bias_array) for bias_array in bias_arrays])
-    bias_std = np.array([np.std(bias_array) for bias_array in bias_arrays])
-    date_list = [mf.date for mf in mf_list]
+    if not isinstance(mf_lists[0], list):
+        mf_lists = [mf_lists]
     
-    # Plot formatting
-    kw.setdefault('fmt', 'bs')
-    kw.setdefault('markersize', 2)
-    kw.setdefault('ecolor', 'gray')
-    kw.setdefault('capsize', 0)
+    subplots = len(mf_lists)
+    fig, ax = plt.subplots(subplots, sharex=True, sharey=True, squeeze=False)
+    ax = ax[:, 0]
     
-    fig, ax = plt.subplots()
-    plt.errorbar(date_list, bias_mean, bias_std, **kw)
-    
-    if xlim is None:
-        ax.set_xlim(ax.get_xlim())
-    else:
-        ax.set_xlim(xlim)
-    if ylim is None:
-        ax.set_ylim(ax.get_ylim())
-    else:
-        ax.set_ylim(ylim)
-    
-    plt.hlines(0, datetime(1970,1,1), datetime(2100,1,1), linestyle='--', lw=0.5)
+    for i, mf_list in enumerate(mf_lists):
+        plt.sca(ax[i])
+        
+        bias_arrays = [mf.data[1] - mf.data[0] for mf in mf_list]
+        bias_mean = np.array([np.mean(bias_array) for bias_array in bias_arrays])
+        bias_std = np.array([np.std(bias_array) for bias_array in bias_arrays])
+        date_list = [mf.date for mf in mf_list]
+        
+        # Plot formatting
+        kw.setdefault('fmt', 'bs')
+        kw.setdefault('markersize', 2)
+        kw.setdefault('ecolor', 'gray')
+        kw.setdefault('elinewidth', 0.5)
+        kw.setdefault('capsize', 0)
+        
+        plt.errorbar(date_list, bias_mean, bias_std, **kw)
+        
+        if xlim is None:
+            ax[i].set_xlim(ax[i].get_xlim())
+        else:
+            ax[i].set_xlim(xlim)
+        if ylim is None:
+            ax[i].set_ylim(ax[i].get_ylim())
+        else:
+            ax[i].set_ylim(ylim)
+        
+        plt.hlines(0, datetime(1970,1,1), datetime(2100,1,1), linestyle='--', lw=0.5)
+        
+        ax[i].tick_params(direction='in', bottom=True, top=True, left=True, right=True)
+        ax[i].tick_params(direction='in', bottom=True, top=True, left=True, right=True)
+        if mf_list[0].data_sets[1] == 'metum':
+            ax[i].set_ylabel('Lead Time: {0} hours'.format(int(mf_list[0].forecast_times[1])))
+        elif mf_list[0].data_sets[1][:5] == 'modis':
+            ax[i].set_ylabel('({0} - {1})'.format(mf_list[0].names[1], mf_list[0].names[0]))
     
     if mf_list[0].aod_type == 0: mf_list[0].aod_type = 'total'
     if mf_list[0].aod_type == 1: mf_list[0].aod_type = 'dust'
-    plt.title('{0} AOD Daily Mean Bias'.format(mf_list[0].aod_type.title()))
+    plt.suptitle('{0} AOD Daily Mean Bias'.format(mf_list[0].aod_type.title()))
     plt.xlabel('Date')
-    plt.ylabel('AOD bias ({0} - {1})'.format(mf_list[0].names[1], mf_list[0].names[0]))
+    if mf_list[0].data_sets[1] == 'metum':
+        ylabel = 'AOD bias (Unified Model - {1})'.format(mf_list[0].data_sets[1], mf_list[0].names[0])
+    elif mf_list[0].data_sets[1][:5] == 'modis':
+        ylabel = 'AOD bias'
+    fig.text(0.02, 0.5, ylabel, va='center', rotation='vertical')
     
     if show == True:
         plt.show()
@@ -541,42 +678,58 @@ def period_bias_plot(mf_list, xlim=None, ylim=None, show=True, **kw):
         return fig
 
 
-def plot_anet_site(df, site=0, aod_type=None):
+def plot_anet_site(aeronet, site, data_frames, aod_type='total'):
     '''
     Plot the daily AOD data for a single AERONET site.
     
     Parameters
     ----------
-    df : aeroct DataFrame
-        A data-frame returned by aeroct.load() containing AERONET data, from which to plot.
-    site : int, optional (Default: 0)
-        The index for the AERONET site in a list sorted by increasing longitude.
-    aod_type : {'total', 'dust', 'both'}, optional (Default: 'both')
+    aeronet : aeroct DataFrame
+        A data-frame returned by aeroct.load() containing AERONET data for which to plot. 
+    data_frames : list of aeroct DataFrames
+        A list of other data-frames returned by aeroct.load() for which to plot.
+    site : str
+        The name of the AERONET site at which to plot data.
+    aod_type : {'total' or 'dust'}, optional (Default: 'total')
         The type of AOD data to plot.
     '''
+    sites, i_uniq, i_inv = np.unique(aeronet.sites, return_index=True , return_inverse=True)
+    lat = aeronet.latitudes[i_uniq[sites==site]]
+    lon = aeronet.longitudes[i_uniq[sites==site]]
+    site_ll = np.array([lon, lat])
     
-    if df.data_set != 'aeronet':
-        raise ValueError('Only AERONET data may be used in this function.')
-    
-    lons, i_uniq, i_inv = np.unique(df.longitudes, return_index=True , return_inverse=True)
-    lon = lons[site]
-    lat = df.latitudes[i_uniq[site]]
-    times = df.times[i_inv == site]
-    
+    # Get the AOD and times for the AERONET data at the chosen site
+    anet_times = aeronet.times[i_uniq[sites==site]]
     if aod_type == 'total':
-        aod_t = df.data[0, i_inv == site]
+        anet_aod = aeronet.aod[0][i_uniq[sites==site]]
     elif aod_type == 'dust':
-        aod_d = df.data[1, i_inv == site]
-    elif aod_type == 'both':
-        aod_t = df.data[0, i_inv == site]
-        aod_d = df.data[1, i_inv == site]
+        anet_aod = aeronet.aod[1][i_uniq[sites==site]]
     
-    if aod_type in ('total', 'both'):
-        plt.plot(times, aod_t, label='Total')
-    if aod_type in ('dust', 'both'):
-        plt.plot(times, aod_d, label='Dust')
-    plt.title('Daily {0} AOD From AERONET At (Lon: {1:.02f}, Lat: {2:.02f})'\
-              .format(df.name.title(), lon, lat))
+    # Plot the AERONET data
+    plt.plot(anet_times, anet_aod, label='AERONET')
+    
+    for df in data_frames:
+        aod, times = aeroct.match_to_site(df, site_ll, aod_type, match_dist=25)
+        plt.plot(times, aod, label=df.name)
+    
+#     lons, i_uniq, i_inv = np.unique(aeronet.longitudes, return_index=True , return_inverse=True)
+#     lon = lons[site]
+#     lat = aeronet.latitudes[i_uniq[site]]
+#     times = aeronet.times[i_inv == site]
+#     
+#     if aod_type == 'total':
+#         aod_t = aeronet.data[0, i_inv == site]
+#     elif aod_type == 'dust':
+#         aod_d = aeronet.data[1, i_inv == site]
+#     elif aod_type == 'both':
+#         aod_t = aeronet.data[0, i_inv == site]
+#         aod_d = aeronet.data[1, i_inv == site]
+#     
+#     if aod_type in ('total', 'both'):
+#         plt.plot(times, aod_t, label='Total')
+#     if aod_type in ('dust', 'both'):
+#         plt.plot(times, aod_d, label='Dust')
+    plt.title('Daily {0} AOD From AERONET Site: {1}'.format(aeronet.name.title(), site))
     if aod_type == 'both':
         plt.legend(loc='best')
     plt.show()
@@ -612,8 +765,8 @@ def plot_region_mask(bounds):
     for bound in bounds:
         width = bound[1] - bound[0]
         height = bound[3] - bound[2]
-        region = patches.Rectangle((bound[0], bound[2]), width, height,
-                                   edgecolor='grey', facecolor='whitesmoke')
+        region = patches.Rectangle((bound[0], bound[2]), width, height, linewidth=2,
+                                   edgecolor='darkgrey', facecolor='lightgray')
         ax.add_patch(region)
     
     plt.show()

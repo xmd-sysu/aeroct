@@ -12,6 +12,7 @@ from datetime import timedelta, datetime
 import numpy as np
 from scipy import stats
 import pandas as pd
+import warnings
 try:
     import cPickle as pickle
 except ModuleNotFoundError:
@@ -23,6 +24,8 @@ from aeroct import metum
 from aeroct import utils
 
 SCRATCH_PATH = os.popen('echo $SCRATCH').read().rstrip('\n') + '/aeroct/'
+MODIS_DUST_FILTERS = [['ARSL_TYPE_LAND'],['AE_LAND', 'SSA_LAND'],
+                      ['FM_FRC_OCEAN', 'AE_OCEAN', 'EFF_RAD_OCEAN', 'MASS_CONC', 'REGION_OCEAN']]
 
 # How to output the names of the data sets
 print_name = {'aeronet': 'AERONET',
@@ -30,6 +33,36 @@ print_name = {'aeronet': 'AERONET',
               'modis_t' : 'MODIS Terra',
               'modis_a' : 'MODIS Aqua',
               'metum': 'Unified Model'}
+
+def set_dust_filters(dust_filters):
+    '''
+    Set the dust filters to use for retrieving dust data for MODIS.
+    
+    Parameters
+    ----------
+    dust_filters : list of str
+        This lists the conditions to decide which AOD values are dominated by dust.
+        The conditions within a secondary array are combined using AND, while the
+        conditions in the first array are combined with OR.
+        ie. [['a', 'b'], 'c'] represents (filter['a'] AND filter['b]) OR filter['c'].
+        Available filters:
+        - 'ARSL_TYPE_LAND': If it has been flagged as dust already.
+        - 'AE_LAND': angstrom exponent <= 0.6 for land data.
+        - 'SSA_LAND': 0.878 < scattering albedo < 0.955 for land data.
+        - 'FM_FRC_OCEAN': fine mode fraction <= 0.45 for ocean data.
+        - 'AE_OCEAN': angstrom exponent <= 0.5 for ocean data.
+        - 'EFF_RAD_OCEAN' : effective radius > 1.0 micron.
+        - 'MASS_CONC' : mass concentration >= 1.2e-4 kg / m^2.
+        - 'REGION_OCEAN': Only ocean data within the dust regions are selected.
+        - 'NONE': No filter.
+        By default the following are used:
+        ['ARSL_TYPE_LAND', ['AE_LAND', 'SSA_LAND'], ['FM_FRC_OCEAN', 'AE_OCEAN',
+         'EFF_RAD_OCEAN', 'MASS_CONC', 'REGION_OCEAN']]
+        However if the data has been retrieved from MetDB only ARSL_TYPE_LAND has an
+        effect.
+    '''
+    global MODIS_DUST_FILTERS
+    MODIS_DUST_FILTERS = dust_filters
 
 
 class DataFrame():
@@ -78,7 +111,9 @@ class DataFrame():
         This indicates the source of the data contained within the DataFrame.
     name : str
         This gives the name of the source in a format for printing. It also includes the
-        forecast lead time for model data. 
+        forecast lead time for model data.
+    sites : str or None
+        For AERONET data this contains all of the names of the sites in the data
     dust_filters : dict or None
         Dictionary containing lists of indices for the AOD data which satisfies
         various dust filter conditions. Only currently used for MODIS data.
@@ -87,8 +122,11 @@ class DataFrame():
             - 'AE_LAND': Angstrom exponent <= 0.6 for land data.
             - 'SSA_LAND': 0.878 < scattering albedo < 0.955 for land data.
             - 'FM_FRC_OCEAN': Fine mode fraction <= 0.45 for ocean data.
-            - 'AE_OCEAN': Angstrom exponent <= 0.6 for ocean data.
+            - 'AE_OCEAN': Angstrom exponent <= 0.5 for ocean data.
+            - 'EFF_RAD_OCEAN': effective radius > 1.0 micron.
+            - 'MASS_CONC': mass concentration >= 1.2e-4 kg / m^2.
             - 'REGION_OCEAN': Only ocean data within the regions with dust are selected.
+            - 'NONE': No filter.
     cube : Iris cube or None
         If the data is obtained from an Iris cube then it is supplied here.
     additional_data : list of str
@@ -154,7 +192,7 @@ class DataFrame():
     '''
 
     def __init__(self, aod, longitudes, latitudes, times, date, wavelength=550,
-                 data_set=None, **kw):
+                 data_set=None, **kwargs):
         # Ensure longitudes are in range [-180, 180]
         longitudes = longitudes.copy()
         longitudes[longitudes > 180] -= 360
@@ -169,14 +207,15 @@ class DataFrame():
         self.date       = date                      # (datetime)
         self.wavelength = wavelength                # [nm]
         self.data_set   = data_set                  # The name of the data set
-        self.forecast_time = kw.setdefault('forecast_time', None)  # [hours]
+        self.forecast_time = kwargs.setdefault('forecast_time', None)  # [hours]
         self.name = print_name[data_set]
         if self.forecast_time is not None:
             self.name += ' (Lead time: {0} hours)'.format(int(self.forecast_time))
         
-        self.dust_filters = kw.setdefault('dust_filters', None)
-        self.cube = kw.setdefault('cube', None)
-        self.additional_data = kw.setdefault('additional_data', [])
+        self.sites = kwargs.setdefault('sites', None)
+        self.dust_filters = kwargs.setdefault('dust_filters', None)
+        self.cube = kwargs.setdefault('cube', None)
+        self.additional_data = kwargs.setdefault('additional_data', [])
     
     
     @classmethod
@@ -224,12 +263,15 @@ class DataFrame():
             - 'AE_LAND': angstrom exponent <= 0.6 for land data.
             - 'SSA_LAND': 0.878 < scattering albedo < 0.955 for land data.
             - 'FM_FRC_OCEAN': fine mode fraction <= 0.45 for ocean data.
-            - 'AE_OCEAN': angstrom exponent <= 0.6 for ocean data.
-            - 'REGION_OCEAN': Only ocean data within the regions with dust are selected.
+            - 'AE_OCEAN': angstrom exponent <= 0.5 for ocean data.
+            - 'EFF_RAD_OCEAN' : effective radius > 1.0 micron.
+            - 'MASS_CONC' : mass concentration >= 1.2e-4 kg / m^2.
+            - 'REGION_OCEAN': Only ocean data within the dust regions are selected.
             - 'NONE': No filter.
             By default ['ARSL_TYPE_LAND'] is used if the data has been retrieved from
             MetDB. If downloaded from NASA the following is used:
-            [['AE_LAND', 'SSA_LAND'], ['FM_FRC_OCEAN', 'AE_OCEAN']]
+            [['AE_LAND', 'SSA_LAND'], ['FM_FRC_OCEAN', 'AE_OCEAN', 'EFF_RAD_OCEAN',
+                                       'MASS_CONC', 'REGION_OCEAN']]
         '''
         get_total = (aod_type=='total') | ((aod_type is None) &
                                            (self.aod[0] is not None))
@@ -265,11 +307,15 @@ class DataFrame():
                     
                     # Get default filter fields
                     if dust_filter_fields is None:
+                        # From MetDB
                         if np.all(self.dust_filters['AE_LAND']):
-                            dust_filter_fields = ['ARSL_TYPE_LAND']
+                            if MODIS_DUST_FILTERS != ['NONE']:
+                                dust_filter_fields = ['ARSL_TYPE_LAND']
+                            else:
+                                dust_filter_fields = ['NONE']
+                        # From NASA
                         else:
-                            dust_filter_fields = [['AE_LAND', 'SSA_LAND'],
-                                                  ['FM_FRC_OCEAN', 'AE_OCEAN']]
+                            dust_filter_fields = MODIS_DUST_FILTERS
                     
                     # Perform AND over the filters in the second index and
                     # OR over the first index
@@ -282,7 +328,7 @@ class DataFrame():
                             dust_filter.append(self.dust_filters[f])
                     dust_filter = np.any(dust_filter, axis=0)
                     
-                    if aod[1] is None:
+                    if self.aod[1] is None:
                         aod = self.aod[0][dust_filter]
                     else:
                         aod = self.aod[1][dust_filter]
@@ -309,7 +355,7 @@ class DataFrame():
         
         Parameters
         ----------
-        filename : str, optional (Default: '{data_set}_YYYYMMDD_##')
+        filename : str, optional (Default: '{data_set}_YYYYMMDD')
             What to name the saved file.
         dir_path : str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
             The path to the directory where the file will be saved.
@@ -321,16 +367,16 @@ class DataFrame():
         if filename != None:
             pass
         elif type(self.data_set) == str:
-            filename = '{0}_{1}_'.format(self.data_set, self.date.strftime('%Y%m%d'))
+            if self.forecast_time is None:
+                filename = '{0}_{1}'.format(self.data_set, self.date.strftime('%Y%m%d'))
+            else:
+                filename = '{0}{1}_{2}'.format(self.data_set, self.forecast_time,
+                                               self.date.strftime('%Y%m%d'))
         else:
             raise ValueError('data_set attribute invalid. Cannot create filename')
         
-        i = 0
-        while os.path.exists(dir_path + filename + str(i).zfill(2) + file_ext):
-            i += 1
-        filepath = dir_path + filename + str(i).zfill(2) + file_ext
-        
         # Write file
+        filepath = dir_path + filename + file_ext
         os.system('touch {0}'.format(filepath))
         with open(filepath, 'w') as writer:
             pickle.dump(self, writer, -1)
@@ -404,6 +450,8 @@ class DataFrame():
             else:
                 aod1 = None
             
+            sites = self.sites[in_bounds] if (self.sites is not None) else None
+            
             if self.dust_filters is not None:
                 dust_filters = self.dust_filters.copy()
                 for key in dust_filters.keys():
@@ -419,8 +467,9 @@ class DataFrame():
             additional_data = [ext_description]
         
         return DataFrame([aod0, aod1], lons, lats, times, self.date, self.wavelength,
-                         self.data_set, forecast_time=self.forecast_time, cube=cube,
-                         dust_filters=dust_filters, additional_data=additional_data)
+                         self.data_set, forecast_time=self.forecast_time, sites=sites,
+                         dust_filters=dust_filters, cube=cube,
+                         additional_data=additional_data)
 
 
 
@@ -464,8 +513,8 @@ class MatchFrame():
     date : datetime, or list of datetimes
         The date for which the MatchFrame instance contains data. It is a list if
         multiple days have been concatenated into a single MatchFrame.
-    match_radius : int
-        The maximum distance for which data has been matched and averaged in degrees.
+    match_dist : int
+        The maximum distance for which data has been matched and averaged in km.
     match_time : int
         The maximum time over which data has been matched and averaged in hours.
     wavelength : int
@@ -551,7 +600,7 @@ class MatchFrame():
         multiple days have been concatenated into a single MatchFrame.
     match_time : int
         The maximum time over which data has been matched and averaged in hours.
-    match_rad : int
+    match_dist : int
         The maximum distance for which data has been matched and averaged in degrees.
     wavelength : int, optional (Default: 550)
         The wavelength, in nm, for which the AOD data has been taken.
@@ -572,7 +621,7 @@ class MatchFrame():
     '''
 
     def __init__(self, data, data_std, data_num, time_diff, longitudes, latitudes, times,
-                 date, match_time, match_rad, wavelength=550, forecast_times=(None, None),
+                 date, match_time, match_dist, wavelength=550, forecast_times=(None, None),
                  data_sets=(None, None), aod_type='total', **kw):
         # Data and axes
         self.data       = data              # Averaged AOD data (Not flattend if cube != None)
@@ -585,7 +634,7 @@ class MatchFrame():
         
         # Meta-data
         self.date           = date            # (datetime)
-        self.match_radius   = match_rad       # Maximum spacial difference between collocated points
+        self.match_dist     = match_dist      # Maximum spacial difference between collocated points (km)
         self.match_time     = match_time      # Maximum time difference between collocated points
         self.wavelength     = wavelength      # [nm]
         self.forecast_times = forecast_times  # [hours] tuple
@@ -596,35 +645,38 @@ class MatchFrame():
         for i in [0,1]:
             self.names[i] = print_name[data_sets[i]]
             if self.forecast_times[i] is not None:
-                self.names[i] += ' (Lead time: {0} hours)'.format(int(self.forecast_times[i]))
+                self.names[i] += ' (LT: {0:03d})'.format(int(self.forecast_times[i]))
         self.additional_data = kw.setdefault('additional_data', [])
         
         # Stats
         self.num = self.data[0].size
-        self.RMS = np.sqrt(np.mean((self.data[1] - self.data[0])**2))   # Root mean square
-        self.BIAS_MEAN = np.mean(self.data[1] - self.data[0])           # y - x mean
-        self.BIAS_STD = np.std(self.data[1] - self.data[0])             # standard deviation
+        # Suppress warnings from averaging over empty arrays
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            self.rms = np.sqrt(np.mean((self.data[1] - self.data[0])**2))   # Root mean square
+            self.bias_mean = np.mean(self.data[1] - self.data[0])           # y - x mean
+            self.bias_std = np.std(self.data[1] - self.data[0])             # standard deviation
         
-        if self.data[0].size > 1:
+        if self.num > 1:
             # R2
             y_mean = np.mean(self.data[1])
             ss_tot = np.sum((self.data[1] - y_mean) ** 2)
             ss_res = np.sum((self.data[1] - self.data[0]) ** 2)
-            self.R2 = 1 - ss_res / ss_tot
+            self.r2 = 1 - ss_res / ss_tot
             
             # Linear Regression
-            self.R_SLOPE, self.R_INTERCEPT, self.R = \
+            self.r_slope, self.r_intercept, self.r = \
                 stats.linregress(self.data[0], self.data[1])[:3]
             
             # Regression of log values
             data0 = self.data[0][(self.data[0] > 0) & (self.data[1] > 0)]
             data1 = self.data[1][(self.data[0] > 0) & (self.data[1] > 0)]
-            self.LOG_R_SLOPE, self.LOG_R_INTERCEPT, self.LOG_R = \
+            self.log_r_slope, self.log_r_intercept, self.log_r = \
                 stats.linregress(np.log10(data0), np.log10(data1))[:3]
         else:
-            self.R_SLOPE, self.R_INTERCEPT, self.R = np.nan, np.nan, np.nan
-            self.LOG_R_SLOPE, self.LOG_R_INTERCEPT, self.LOG_R = np.nan, np.nan, np.nan
-            self.R2 = np.nan
+            self.r_slope, self.r_intercept, self.r = np.nan, np.nan, np.nan
+            self.log_r_slope, self.log_r_intercept, self.log_r = np.nan, np.nan, np.nan
+            self.r2 = np.nan
     
     
     def datetimes(self):
@@ -647,73 +699,105 @@ class MatchFrame():
                                self.data[0], self.data_std[0], self.data_num[0],
                                self.data[1], self.data_std[1], self.data_num[1],
                                self.time_diff]).T
-        headers = ['Time', 'Latitude', 'Longitude',
-                   '{0}: AOD average'.format(self.names[0]),
-                   '{0}: AOD stdev'.format(self.names[0]),
-                   '{0}: Number of points'.format(self.names[0]),
-                   '{0}: AOD average'.format(self.names[1]),
-                   '{0}: AOD stdev'.format(self.names[1]),
-                   '{0}: Number of points'.format(self.names[1]),
+        headers = ['Time (hours)', 'Latitude', 'Longitude',
+                   '1: AOD average'.format(self.names[0]),
+                   '1: AOD stdev'.format(self.names[0]),
+                   '1: Number of points'.format(self.names[0]),
+                   '2: AOD average'.format(self.names[1]),
+                   '2: AOD stdev'.format(self.names[1]),
+                   '2: Number of points'.format(self.names[1]),
                    'Average time difference']
         df = pd.DataFrame(data_array, columns=headers)
         return df
     
     
     def dump(self, filename=None, dir_path=SCRATCH_PATH+'match_frames/',
-             filetype='pickle', overwrite=False):
+             filetype='pickle'):
         '''
-        Save the data frame as a file in the chosen location. The filepath is returned.
-        Note that only pickle files can be used to load the MatchFrame as the csv files
-        do not contain all of the necessary metadata.
+        Save the data frame as a file in the chosen location if the file already exists
+        it will be overwritten. The filepath is returned. Note that only pickle files can
+        be used to load the MatchFrame as the csv files do not contain all of the
+        necessary metadata.
         
         Parameters
         ----------
-        filename : str, optional (Default: '{data_sets}_YYYYMMDD_')
-            What to name the saved file. An incremental two digit number will be added to
-            the end.
+        filename : str, optional (Default: '{data sets}_YYYYMMDD')
+            What to name the saved file.
         dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
             The path to the directory where the file will be saved.
         filetype : {'pickle', 'csv'}, optional (Default: 'pickle')
             The type of file to save. This will add a file extension.
-        overwrite : bool, optional (Default: False)
-            If True, the file with an incremental number of 00 is overwritten. Otherwise
-            the next available number is chosen.
         '''
         if dir_path[-1] != '/': dir_path += '/'
-        
-        # Make directory if it does not exist
-        os.system('mkdir -p {0}'.format(dir_path))
-        
+         
         # File extension
         if filetype == 'pickle':
+            dir_path += 'pkl/'
             file_ext = '.pkl'
         elif filetype == 'csv':
             file_ext = '.csv'
         
+        # Make directory if it does not exist
+        os.system('mkdir -p {0}'.format(dir_path))
+        
+        # Create the filename
         if filename is None:
             
             if type(self.data_sets) == tuple:
-                filename = '{0}-{1}_{2}_'.format(self.data_sets[1], self.data_sets[0],
-                                              self.date.strftime('%Y%m%d'))
+                # Put the forecast time onto the end of model data-set names
+                data_set_names = []
+                for i, data_set in enumerate(self.data_sets):
+                    if self.forecast_times[i] is not None:
+                        fc_str = str(int(self.forecast_times[i])).zfill(3)
+                    else:
+                        fc_str = ''
+                    data_set_names.append(data_set + fc_str)
+                
+                filename = '{0}-{1}_{2}'.format(data_set_names[1], data_set_names[0],
+                                                self.date.strftime('%Y%m%d'))
             else:
-                raise ValueError('data_sets attribute invalid. Cannot create filename')
+                raise ValueError('Cannot create filename - data_sets attribute invalid.')
         
-        i = 0
-        while os.path.exists(dir_path + filename + str(i).zfill(2) + file_ext) & \
-              (not overwrite):
-            i += 1
-        
-        filepath = dir_path + filename + str(i).zfill(2) + file_ext
+        filepath = dir_path + filename + file_ext
         os.system('touch {0}'.format(filepath))
+        
         # Write pickle file
         if filetype == 'pickle':
-            with open(filepath, 'w') as writer:
-                pickle.dump(self, writer, -1)
-        elif filetype == 'csv':
-            df = self.pd_dataframe()
-            df.to_csv(filepath)
-        print('Data frame saved successfully to {0}'.format(filepath))
+            with open(filepath, 'w') as fout:
+                pickle.dump(self, fout, -1)
         
+        # Write csv file
+        elif filetype == 'csv':
+            if isinstance(self.date, list):
+                first_date = self.date[0].strftime('%Y-%m-%d')
+                last_date = self.date[-1].strftime('%Y-%m-%d')
+                date_str = '{0} to {1}'.format(first_date, last_date)
+            else:
+                date_str = self.date.strftime('%Y-%m-%d')
+            
+            df = self.pd_dataframe()
+            metadata = pd.Series([('Match up for {0}'.format(date_str)),
+                                  ('Data-set 1 : {0}'.format(self.names[0])),
+                                  ('Data-set 2 : {0}'.format(self.names[1])),
+                                  ('Match distance  (km): {0}'.format(self.match_dist)),
+                                  ('Match time (minutes): {0}'.format(self.match_time)),
+                                  ('AOD type : {0}'.format(self.aod_type)),
+                                  ('Wavelength : {0}'.format(self.wavelength)),
+                                  (''),
+                                  ('Number of matches : {0}'.format(self.num)),
+                                  ('RMS : {0:.04f}'.format(self.rms)),
+                                  ('Bias (2-1) mean : {0:.04f}'.format(self.bias_mean)),
+                                  ('Bias (2-1) std : {0:.04f}'.format(self.bias_std)),
+                                  ('Regression intercept : {0:.04f}'.format(self.r_intercept)),
+                                  ('Regression slope : {0:.04f}'.format(self.r_slope)),
+                                  ('Pearson R : {0:.04f}'.format(self.r)),
+                                  ('')])
+            
+            with open(filepath, 'w') as fout:
+                metadata.to_csv(fout, index=False)
+                df.to_csv(fout)
+        
+        print('Data frame saved successfully to {0}'.format(filepath))
         return filepath
     
     
@@ -771,12 +855,13 @@ class MatchFrame():
         ext_description = 'Extraction for lon, lat: {0}, time: {1}'\
                           .format(bounds, time_bounds)
         if hasattr(self, 'additional_data'):
-            additional_data = self.additional_data.append(ext_description)
+            additional_data = self.additional_data
+            additional_data.append(ext_description)
         else:
             additional_data = [ext_description]
         
         return MatchFrame(data, data_std, data_num, time_diff, lons, lats, times,
-                          self.date, self.match_time, self.match_radius, self.wavelength,
+                          self.date, self.match_time, self.match_dist, self.wavelength,
                           self.forecast_times, self.data_sets, self.aod_type, cube=cube,
                           additional_data=additional_data)
 
@@ -838,7 +923,7 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
         print('Processing AERONET data...', end='')
         parameters = aeronet.process_data(aod_df, date)
         print('Complete.')
-        return DataFrame(*parameters, data_set=data_set)
+        return DataFrame(*parameters[:-2], data_set=data_set, sites=parameters[-1])
     
     elif data_set[:5] == 'modis':
         
@@ -868,7 +953,7 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
         return DataFrame(*parameters[:-1], data_set=data_set, dust_filters=parameters[-1])
     
     elif data_set == 'metum':
-        print('------UNIFIED MODEL {0:03d}Z-----'.format(forecast_time))
+        print('-----UNIFIED MODEL LT:{0:03d}----'.format(forecast_time))
         
         um_dl_dir = dl_dir + 'UM/'
         filepath = '{0}Unified_Model{1:03d}_{2}'.format(um_dl_dir, forecast_time, date)
@@ -889,7 +974,7 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
         raise ValueError('Invalid data set: {0}'.format(data_set))
 
 
-def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames'):
+def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames/pkl/'):
     '''
     Load the data frame from a file in the chosen location. Note that saving and
     loading large DataFrames can take some time.
@@ -898,7 +983,7 @@ def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames'):
     ----------
     filename : str
         The name of the saved file.
-    dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
+    dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/pkl/')
         The path to the directory from which to load the file.
     '''
     if dir_path[-1] != '/': dir_path += '/'
@@ -928,11 +1013,12 @@ def concatenate_data_frames(df_list):
     if isinstance(df_list[0], MatchFrame):
         
         match_time = df_list[0].match_time
-        match_rad = df_list[0].match_radius
+        match_rad = df_list[0].match_dist
         wavelength = df_list[0].wavelength
         fc_times = df_list[0].forecast_times
         data_sets = df_list[0].data_sets
         aod_type = df_list[0].aod_type
+        additional_data = df_list[0].additional_data
         
         dates = []
         data0, data_std0, data_num0 = [], [], []
@@ -949,6 +1035,10 @@ def concatenate_data_frames(df_list):
             if df.data_sets != df_list[0].data_sets:
                 raise ValueError('The list of data frames do not contain data from the\
                                   same data-sets.')
+            if df.additional_data != df_list[0].additional_data:
+                raise ValueError('The list of data frames do not contain\
+                                  data with the same meta-data: \n{0}{1}'\
+                                  .fomat(additional_data, df.additional_data))
             
             dates.append(df.date)
             data0.extend(df.data[0])
@@ -970,7 +1060,7 @@ def concatenate_data_frames(df_list):
         
         return MatchFrame(data, data_std, data_num, time_diff, longitudes, latitudes, times,
                           dates, match_time, match_rad, wavelength, fc_times,
-                          data_sets, aod_type)
+                          data_sets, aod_type, additional_data=additional_data)
     
     if isinstance(df_list[0], DataFrame):
         

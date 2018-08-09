@@ -64,7 +64,6 @@ def download_hdf_day(date, dl_dir, satellite='Both', dl_again=False):
         
         ### DOWNLOAD USING curl_dir
         query = 'curl_dir -fx .hdf {0} {1}'.format(dir_url, dl_dir)
-        print(query)
         os.system(query)
         
         #### DOWNLOAD USING URLLIB2 ONE AT A TIME
@@ -102,13 +101,11 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
     '''
     This function can be used to download MODIS data for a day. A dictionary is returned
     containing 1D arrays with the following fields:
-    'LNGT': longitudes,
-    'LTTD': latitudes,
-    'AOD_NM550' : AOD,
-    'ARSL_TYPE': aerosol type (dust=1),
-    'ARSL_RTVL_CNFC_FLAG': quality flag (0
+    'LNGT', 'LTTD', 'AOD_NM550',
+    'ARSL_TYPE': aerosol type land (dust=1),
     'YEAR', 'MNTH', 'DAY', 'HOUR', 'MINT': times,
-    'AE_LAND', 'SSA_LAND', 'FM_FRC', 'FM_FRC_OCEAN', 'AE_OCEAN'
+    'AE_LAND', 'SSA_LAND', 'ARSL_SMAL_MODE_FRCN',
+    'FM_FRC_OCEAN', 'AE_OCEAN', EFF_RAD_OCEAN', 'MASS_CONC'
     
     Parameters:
     date : str 
@@ -144,15 +141,16 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
     
     # Get the fields from the files and concatenate them in lists
     lon, lat, time, asl_type, aod, sat_idny = [], [], [], [], [], []
-    ae_land, ssa_land, fmf_land, fmf_ocean, ae_ocean = [], [], [], [], []
+    ae_land, ssa_land, fmf_land = [], [], []
+    fmf_ocean, ae_ocean, er_ocean, mass_conc = [], [], [], []
     fieldnames = ['Longitude', 'Latitude', 'Scan_Start_Time', 'Aerosol_Type_Land', 
                   'AOD_550_Dark_Target_Deep_Blue_Combined',
                   'AOD_550_Dark_Target_Deep_Blue_Combined_QA_Flag',
                   'Deep_Blue_Angstrom_Exponent_Land',
                   'Deep_Blue_Spectral_Single_Scattering_Albedo_Land',
                   'Optical_Depth_Ratio_Small_Land',
-                  'Optical_Depth_Ratio_Small_Ocean_0.55micron',
-                  'Angstrom_Exponent_1_Ocean']
+                  'Optical_Depth_Ratio_Small_Ocean_0.55micron', 'Effective_Radius_Ocean',
+                  'Angstrom_Exponent_1_Ocean', 'Mass_Concentration_Ocean']
     
     print('Loading {0} MODIS HDF files for {1}.'.format(len(files), date))
     
@@ -161,8 +159,9 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
         try:
             parser = h4Parse(f)
             scaled = parser.get_scaled(fieldnames)
-        except HDF4Error:
+        except HDF4Error as e:
             print('Issue loading file, skipping this file: {0}'.format(f))
+            continue
         
         # Convert 'Scan_Start_Time' (seconds since 1993-01-01)
         # to hours since 00:00:00 on date
@@ -186,6 +185,8 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
         fmf_land.extend(scaled['Optical_Depth_Ratio_Small_Land'][highest_qf])
         fmf_ocean.extend(scaled['Optical_Depth_Ratio_Small_Ocean_0.55micron'][highest_qf])
         ae_ocean.extend(scaled['Angstrom_Exponent_1_Ocean'][highest_qf])
+        er_ocean.extend(scaled['Effective_Radius_Ocean'][0, highest_qf])
+        mass_conc.extend(scaled['Mass_Concentration_Ocean'][0, highest_qf])
     
     lon = np.array(lon)
     lat = np.array(lat)
@@ -198,11 +199,13 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
     fmf_land = np.array(fmf_land)
     fmf_ocean = np.array(fmf_ocean)
     ae_ocean = np.array(ae_ocean)
+    er_ocean = np.array(er_ocean)
+    mass_conc = np.array(mass_conc)
     print()
     
     # Get fine mode fraction for both land and ocean
     fmf = fmf_land
-    fmf[fmf_land < 0] = fmf_ocean[fmf_land < 0]
+    fmf[fmf < 0] = fmf_ocean[fmf < 0]
      
     # Put all of the fields into one structured array
     fields_type = np.dtype([('AOD_NM550', aod.dtype), ('LNGD', lon.dtype),
@@ -210,7 +213,10 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
                             ('STLT_IDNY', sat_idny.dtype), ('ARSL_TYPE', asl_type.dtype),
                             ('AE_LAND', ae_land.dtype), ('SSA_LAND', ssa_land.dtype),
                             ('ARSL_SMAL_MODE_FRCN', fmf.dtype),
-                            ('FM_FRC_OCEAN', fmf_ocean.dtype), ('AE_OCEAN', ae_ocean.dtype)])
+                            ('FM_FRC_OCEAN', fmf_ocean.dtype),
+                            ('AE_OCEAN', ae_ocean.dtype),
+                            ('EFF_RAD_OCEAN', er_ocean.dtype),
+                            ('MASS_CONC', mass_conc.dtype)])
     
     fields_arr = np.empty(len(lon), dtype = fields_type)
     fields_arr['AOD_NM550'] = aod
@@ -224,6 +230,8 @@ def load_data_day(date, dl_dir, satellite='Both', dl_again=False, keep_files=Tru
     fields_arr['ARSL_SMAL_MODE_FRCN'] = fmf
     fields_arr['FM_FRC_OCEAN'] = fmf_ocean
     fields_arr['AE_OCEAN'] = ae_ocean
+    fields_arr['EFF_RAD_OCEAN'] = er_ocean
+    fields_arr['MASS_CONC'] = mass_conc / 10     # 1e-6 g cm^-2 to 1e-4 kg m^-2
     
     # Remove files?
     if keep_files == False:

@@ -5,14 +5,16 @@ Created on Jul 19, 2018
 
 @author: savis
 '''
-from __future__ import division
+from __future__ import division, print_function
 import os
 from datetime import datetime, timedelta
+import numpy as np
 try:
     import cPickle as pickle
 except ModuleNotFoundError:
     import pickle
 
+import aeroct
 from aeroct import aeronet
 from aeroct import modis
 from aeroct import metum
@@ -159,17 +161,106 @@ def download_range(data_set, date_list, dl_dir=SCRATCH_PATH+'downloads/',
                 pickle.dump(dl_data, w, -1)
 
 
-def flattend_3D_grid(x, y, z):
+def get_match_list(data_set2, date_list, data_set1='aeronet', save=True, dir_path=SCRATCH_PATH+'match_frames/',
+                   **kwargs):
     '''
-    Produce a grid for 3 axes, similarly to np.meshgrid. This is then flattened
+    This will return a list of MatchFrames for matched data-sets for a corresponding
+    list of dates. By default the first data-set (x-axis on scatter plot) will be
+    AERONET. The data will be initially downloaded if it has not been already and each
+    individual MatchFrame will be saved unless stated otherwise. Any existing saved
+    MatchFrames will be loaded automatically.
+    
+    Parameters:
+    -----------
+    data_set2 : {'metum', 'modis', 'modis_a', 'modis_t', 'aeronet'}
+        The data-set that should be matched to AERONET data.
+    date_list : list of datetimes
+        This provides the dates over which data should be downloaded and matched. The
+        aeroct.datetime_list() function can be used to provide these.
+    data_set1 : str, optional (Default: 'aeronet')
+        The data-set that should be matched to AERONET data.
+    save : bool, optional (Default: True)
+        If True then each MatchFrame will be saved as a pickled object using the dump()
+        method.
+    dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
+        The directory within which to save the match_frames.
+    kwargs:
+    forecast_time = int (Default: 0)
+        The forecast time if the chosen data-set2 is a model. (Only multiples of 3)
+    forecast_time1 = int (Default: 0)
+        The forecast time if the chosen data-set1 is a model. (Only multiples of 3)
+    match_time = int (Default: 30)
+        The difference in time over which to match data (hours).
+    match_rad = int (Default: 25)
+        The difference in space over which to match data (km).
+    aod_type : {'total', 'dust'} (Default: 'total')
+        The type of AOD data to match-up if there is a choice (MODIS).
+    dl_again : bool (Default: False)
+        If the data should be downloaded and matched again even if files for it exist.
+    dl_dir : str (Default: '/scratch/{USER}/aeroct/downloads/')
+        The directory within which to save downloaded data.
+    subdir : bool (Default: False)
+        If different datasets should be saved within subdirectories within 'dir_path'.
     '''
-    len1, len2, len3 = len(x), len(y), len(z)
-    x = x.reshape(len1, 1, 1)
-    y = y.reshape(1, len2, 1)
-    z = z.reshape(1, 1, len3)
     
-    X = x.repeat(len2, axis=1).repeat(len3, axis=2)
-    Y = y.repeat(len1, axis=0).repeat(len3, axis=2)
-    Z = z.repeat(len1, axis=0).repeat(len2, axis=1)
+    if dir_path[-1] != '/': dir_path += '/'
     
-    return X.flatten(), Y.flatten(), Z.flatten()
+    # kwargs
+    fc_time2 = kwargs.setdefault('forecast_time', 0)
+    fc_time1 = kwargs.setdefault('forecast_time1', 0)
+    match_time = kwargs.setdefault('match_time', 30)
+    match_rad = kwargs.setdefault('match_rad', 25)
+    aod_type = kwargs.setdefault('aod_type', 'total')
+    dl_again = kwargs.setdefault('dl_again', False)
+    dl_dir = kwargs.setdefault('dl_dir', SCRATCH_PATH+'downloads/')
+    subdir = kwargs.setdefault('subdir', False)
+    
+    if subdir & (data_set1 == 'aeronet'):
+        if data_set2 == 'modis_a':
+            dir_path += 'MODIS_Aqua_{0}/'.format(aod_type[0])
+        elif data_set2 == 'modis_t':
+            dir_path += 'MODIS_Terra_{0}/'.format(aod_type[0])
+        elif data_set2 == 'modis':
+            dir_path += 'MODIS_{0}/'.format(aod_type[0])
+        else:
+            dir_path += 'UM{0:03d}/'.format(fc_time2)
+    
+    # Build the list of MatchFrames
+    mf_list = []
+    for date in date_list:
+        print('\nDate: {0}'.format(date.date()))
+        
+        if data_set1 == 'metum':
+            ds1_str = '{0}{1:03d}'.format(data_set1, fc_time1) 
+        else:
+            ds1_str = data_set1
+        if data_set2 == 'metum':
+            ds2_str = '{0}{1:03d}'.format(data_set2, fc_time2) 
+        else:
+            ds2_str = data_set2
+        
+        # Load pickled MatchFrame if it already exists
+        filename0 = '{0}-{1}_{2}.pkl'.format(ds2_str, ds1_str, date.strftime('%Y%m%d'))
+        if os.path.exists(dir_path + 'pkl/' + filename0) & (not dl_again):
+            mf_list.append(aeroct.load_from_pickle(filename0, dir_path+'pkl/'))
+        
+        else:
+            df1 = aeroct.load(data_set1, date, forecast_time=fc_time1, dl_dir=dl_dir,
+                              dl_again=dl_again)
+            df2 = aeroct.load(data_set2, date, forecast_time=fc_time2, dl_dir=dl_dir,
+                              dl_again=dl_again)
+            
+            mf = aeroct.collocate(df1, df2, match_time, match_rad, aod_type=aod_type,
+                                  save=save, dir_path=dir_path)
+            mf_list.append(mf)
+    
+    return mf_list
+
+
+def average_each_n_values(array, n):
+    array = np.array(array)
+    padded_array = np.pad(array.astype(float), (0, (n - array.size%n)%n),
+                          mode='constant', constant_values=np.NaN)
+    averaged_array = np.nanmean(padded_array.reshape(-1, n), axis=1)
+    averaged_array_std = np.nanstd(padded_array.reshape(-1, n), axis=1)
+    return averaged_array, averaged_array_std
