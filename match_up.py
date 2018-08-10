@@ -537,9 +537,9 @@ def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='to
               save=True, dir_path=SCRATCH_PATH+'match_frames/', save_subdir=True):
     '''
     This matches up elements in time and space from two data frames with the same date
-    and wavelength. The outputs are new data frames containing the averaged AOD data
+    and wavelength. The output is a MatchFrame containing the averaged AOD data
     matched up over area and time. By default the matching up is performed over a 30
-    minute time frame and a radius of 25 km.
+    minute time frame and a distance of 25 km.
     NOTE: match_dist is converted to degrees and a circle of latitudes and longitudes are
     used. Therefore not all the data within match_dist may cause a match near the poles.
     

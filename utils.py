@@ -161,34 +161,31 @@ def download_range(data_set, date_list, dl_dir=SCRATCH_PATH+'downloads/',
                 pickle.dump(dl_data, w, -1)
 
 
-def get_match_list(data_set2, date_list, data_set1='aeronet', save=True, dir_path=SCRATCH_PATH+'match_frames/',
+def get_match_list(data_set1, data_set2, date_list, save=True, dir_path=SCRATCH_PATH+'match_frames/',
                    **kwargs):
     '''
     This will return a list of MatchFrames for matched data-sets for a corresponding
-    list of dates. By default the first data-set (x-axis on scatter plot) will be
-    AERONET. The data will be initially downloaded if it has not been already and each
+    list of dates. The data will be initially downloaded if it has not been already and each
     individual MatchFrame will be saved unless stated otherwise. Any existing saved
     MatchFrames will be loaded automatically.
     
     Parameters:
     -----------
-    data_set2 : {'metum', 'modis', 'modis_a', 'modis_t', 'aeronet'}
-        The data-set that should be matched to AERONET data.
+    data_set1, data_set2 : {'metum', 'modis', 'modis_a', 'modis_t', 'aeronet'}
+        The data-sets that should be matched.
     date_list : list of datetimes
         This provides the dates over which data should be downloaded and matched. The
         aeroct.datetime_list() function can be used to provide these.
-    data_set1 : str, optional (Default: 'aeronet')
-        The data-set that should be matched to AERONET data.
     save : bool, optional (Default: True)
         If True then each MatchFrame will be saved as a pickled object using the dump()
         method.
     dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
         The directory within which to save the match_frames.
     kwargs:
-    forecast_time = int (Default: True)
-        The forecast time if the chosen data-set2 is a model. (Only multiples of 3)
     forecast_time1 = int (Default: True)
         The forecast time if the chosen data-set1 is a model. (Only multiples of 3)
+    forecast_time2 = int (Default: True)
+        The forecast time if the chosen data-set2 is a model. (Only multiples of 3)
     match_time = int (Default: 30)
         The difference in time over which to match data (hours).
     match_rad = int (Default: 25)
@@ -206,8 +203,8 @@ def get_match_list(data_set2, date_list, data_set1='aeronet', save=True, dir_pat
     if dir_path[-1] != '/': dir_path += '/'
     
     # kwargs
-    fc_time2 = kwargs.setdefault('forecast_time', None)
     fc_time1 = kwargs.setdefault('forecast_time1', None)
+    fc_time2 = kwargs.setdefault('forecast_time2', None)
     match_time = kwargs.setdefault('match_time', 30)
     match_rad = kwargs.setdefault('match_rad', 25)
     aod_type = kwargs.setdefault('aod_type', 'total')

@@ -5,7 +5,7 @@ The AOD data throughout the day for a single AERONET site can be plotted with
 plot_anet_site().
 The daily average for the AOD / AOD difference for either a DataFrame or MatchFrame can
 be plotted on a map using plot_map().
-The AOD match-up for a MatchFrame may be plotted on a scatter plot with scatter_plot().
+The AOD match-up for a MatchFrame may be plotted on a scatter plot with scatterplot().
 
 Created on Jul 5, 2018
 
@@ -296,7 +296,7 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
         return fig
 
 
-def scatterplot(df, stats=True, scale='log', xlim=(None, None), ylim=(None, None),
+def scatterplot(mf, stats=True, scale='log', xlim=(None, None), ylim=(None, None),
                 show=True, error=True, hm_threshold=400, grid_cells=None, **kwargs):
     '''
     This is used to plot AOD data from two sources which have been matched-up on a
@@ -304,8 +304,8 @@ def scatterplot(df, stats=True, scale='log', xlim=(None, None), ylim=(None, None
     
     Parameters
     ----------
-    df : AeroCT MatchFrame
-        The data frame containing collocated data for a day.
+    mf : AeroCT MatchFrame or list of MatchFrames
+        The data frame(s) containing collocated data.
     stats : bool, optional (Default: True)
         Choose whether to show statistics on the plot.
     scale : {'log', 'linear', 'bins'}, optional (Default: 'log')
@@ -327,18 +327,18 @@ def scatterplot(df, stats=True, scale='log', xlim=(None, None), ylim=(None, None
         Arguments for the style of the scatter plot. By default c='r', marker='o',
         linestyle='None' and, if error=True, ecolor='gray'.
     '''
-    if isinstance(df, list):
-        df = aeroct.concatenate_data_frames(df)
-        date_str = '{0} to {1}'.format(df.date[0].date(), df.date[-1].date())
+    if isinstance(mf, list):
+        mf = aeroct.concatenate_data_frames(mf)
+        date_str = '{0} to {1}'.format(mf.date[0].date(), mf.date[-1].date())
     else:
-        date_str = '{0}'.format(df.date.date())
+        date_str = '{0}'.format(mf.date.date())
     
-    if (df.__class__.__name__ != 'MatchFrame') | (len(df.data_sets) != 2):
+    if (mf.__class__.__name__ != 'MatchFrame') | (len(mf.data_sets) != 2):
         raise ValueError('The data frame is unrecognised. It must be collocated data \
                          from two data sets.')
     
     # Plot a heat map if there are more data points than hm_threshold
-    heatmap = (df.data[0].size > hm_threshold)
+    heatmap = (mf.data[0].size > hm_threshold)
     
     fig = plt.figure(figsize=(8,8))
     
@@ -346,13 +346,13 @@ def scatterplot(df, stats=True, scale='log', xlim=(None, None), ylim=(None, None
     x0, y0 = 0.13, 0.08
     width, height = 0.7, 0.6
     width2, height2 = 0.1, 0.1
+    cheight, cpad = 0.03, 0.1
     
     if heatmap:
-        cheight, cpad = 0.03, 0.1
         cax = fig.add_axes([x0, y0, width, cheight])
         y1 = y0 + cheight + cpad
     else:
-        y1 = y0
+        y1 = y0 + (cheight + cpad) / 2
     
     ax = fig.add_axes([x0, y1, width, height])
     ax_x = fig.add_axes([x0, y1 + height + 0.01, width, height2], sharex=ax)
@@ -360,16 +360,16 @@ def scatterplot(df, stats=True, scale='log', xlim=(None, None), ylim=(None, None
     
     # Grid cell boundaries for heat-map / histograms
     if xlim[0] is None:
-        xmax = np.max(df.data[0])
-        data_min = np.min(df.data[0, df.data[0] > 1e-6])
+        xmax = np.max(mf.data[0])
+        data_min = np.min(mf.data[0, mf.data[0] > 1e-6])
         xmin = 1e-3 if (data_min < 1e-3) else data_min
     else:
         xmax = xlim[1]
         xmin = 1e-3 if (xlim[0] < 1e-3) else xlim[0]
     
     if ylim[0] is None:
-        ymax = np.max(df.data[1])
-        data_min = np.min(df.data[1, df.data[1] > 1e-6])
+        ymax = np.max(mf.data[1])
+        data_min = np.min(mf.data[1, mf.data[1] > 1e-6])
         ymin = 1e-3 if (data_min < 1e-3) else data_min
     else:
         ymax = ylim[1]
@@ -377,7 +377,7 @@ def scatterplot(df, stats=True, scale='log', xlim=(None, None), ylim=(None, None
     
     # Grid cells
     if grid_cells is None:
-        grid_cells = 20 * df.num ** 0.2
+        grid_cells = 20 * mf.num ** 0.2
     grid_cells += 1
     if (scale == 'log') | ((not heatmap) & (scale=='bins')):
         x_grid = 10 ** np.linspace(np.log10(xmin), np.log10(xmax), grid_cells)
@@ -398,14 +398,14 @@ def scatterplot(df, stats=True, scale='log', xlim=(None, None), ylim=(None, None
         
         if error == True:
             kwargs.setdefault('ecolor', 'gray')
-            ax.errorbar(df.data[0], df.data[1], df.data_std[1], df.data_std[0], **kwargs)
+            ax.errorbar(mf.data[0], mf.data[1], mf.data_std[1], mf.data_std[0], **kwargs)
         else:
-            ax.plot(df.data[0], df.data[1], **kwargs)
+            ax.plot(mf.data[0], mf.data[1], **kwargs)
     
     # Otherwise plot a heat-map
     else:
         # Find the number of points in each grid cell and mask those with none
-        heatmap_grid = np.histogram2d(df.data[0], df.data[1], [x_grid, y_grid])[0]
+        heatmap_grid = np.histogram2d(mf.data[0], mf.data[1], [x_grid, y_grid])[0]
         heatmap_grid = np.ma.masked_where(heatmap_grid==0, heatmap_grid)
         
         im = ax.pcolormesh(x_grid, y_grid, heatmap_grid.T, cmap='CMRmap_r')
@@ -418,9 +418,9 @@ def scatterplot(df, stats=True, scale='log', xlim=(None, None), ylim=(None, None
         ylim = ax.get_ylim()
     
     x = np.linspace(1e-4, 10, 101)
-    y = df.r_intercept + x * df.r_slope
-    x_data = df.data[0][(df.data[0] > 0) & (df.data[1] > 0)]
-    y_data = df.data[1][(df.data[0] > 0) & (df.data[1] > 0)]
+    y = mf.r_intercept + x * mf.r_slope
+    x_data = mf.data[0][(mf.data[0] > 0) & (mf.data[1] > 0)]
+    y_data = mf.data[1][(mf.data[0] > 0) & (mf.data[1] > 0)]
     log_r_slope, log_r_intercept, log_r = \
                 linregress(np.log10(x_data), np.log10(y_data))[:3]
     y_log = 10 ** (log_r_intercept + np.log10(x) * log_r_slope)
@@ -429,31 +429,31 @@ def scatterplot(df, stats=True, scale='log', xlim=(None, None), ylim=(None, None
     ax.plot(x, x, c='gray', ls='--', lw=2, label='y = x') # y = x line
     
     # AOD source for dust
-    if df.aod_type == 1:
+    if mf.aod_type == 'dust':
         aod_src = {'metum' : '',
-                   'modis' : '(Filtered total AOD)',
-                   'modis_t' : '(Filtered total AOD)',
-                   'modis_a' : '(Filtered total AOD)',
+                   'modis' : '(Filtered coarse AOD)',
+                   'modis_t' : '(Filtered coarse AOD)',
+                   'modis_a' : '(Filtered coarse AOD)',
                    'aeronet' : '(SDA coarse mode)'}
     else:
         aod_src = {'metum' : '', 'modis': '', 'modis_t' : '', 'modis_a' : '', 'aeronet': ''}
     
     # Title, axes, and legend
-    if np.any([df.additional_data[i][:10]=='Extraction'
-               for i in range(len(df.additional_data))]):
+    if np.any([mf.additional_data[i][:10]=='Extraction'
+               for i in range(len(mf.additional_data))]):
         rgn_str = 'Regional'
     else:
         rgn_str = 'Global'
-    if df.aod_type in ('total', 0):
+    if mf.aod_type in ('total', 0):
         aod_str = 'Total AOD'
-    elif df.aod_type in ('dust', 1):
+    elif mf.aod_type in ('dust', 1):
         aod_str = 'Dust AOD'
     title = 'Collocated {0} {1} Comparison For {2}'.format(rgn_str, aod_str, date_str)
     
     fig.text(0.5, (y1 + height + height2 + 0.03), title, ha='center', fontsize=14)
     ax.legend(loc=4)
-    ax.set_xlabel('{0} AOD {1}'.format(df.names[0], aod_src[df.data_sets[0]]))
-    ax.set_ylabel('{0} AOD {1}'.format(df.names[1], aod_src[df.data_sets[1]]))
+    ax.set_xlabel('{0} AOD {1}'.format(mf.names[0], aod_src[mf.data_sets[0]]))
+    ax.set_ylabel('{0} AOD {1}'.format(mf.names[1], aod_src[mf.data_sets[1]]))
     if heatmap:
         cax.set_xlabel('Match-ups in each cell')
     
@@ -472,31 +472,31 @@ def scatterplot(df, stats=True, scale='log', xlim=(None, None), ylim=(None, None
         ax.loglog()
     
     # Histograms
-    ax_x.hist(df.data[0], bins=x_grid, color='k')
-    ax_y.hist(df.data[1], bins=y_grid, color='k', orientation='horizontal')
+    ax_x.hist(mf.data[0], bins=x_grid, color='k')
+    ax_y.hist(mf.data[1], bins=y_grid, color='k', orientation='horizontal')
     
     # Stats
     if stats == True:
         box = dict(facecolor='w', edgecolor='w', pad=-0.75)
-        num_str = 'Num: {:d}'.format(df.num)
+        num_str = 'Num: {:d}'.format(mf.num)
         plt.text(0.03, 0.94, num_str, fontsize=12, transform=ax.transAxes, bbox=box)
         
-        rms_str = 'RMS: {:.02f}'.format(df.rms)
+        rms_str = 'RMS: {:.02f}'.format(mf.rms)
         plt.text(0.03, 0.88, rms_str, fontsize=12, transform=ax.transAxes, bbox=box)
         
-        bias_mean_str = 'Bias mean: {:.03f}'.format(df.bias_mean)
+        bias_mean_str = 'Bias mean: {:.03f}'.format(mf.bias_mean)
         plt.text(0.03, 0.82, bias_mean_str, fontsize=12, transform=ax.transAxes, bbox=box)
         
-        bias_std_str = 'Bias std: {:.03f}'.format(df.bias_std)
+        bias_std_str = 'Bias std: {:.03f}'.format(mf.bias_std)
         plt.text(0.03, 0.76, bias_std_str, fontsize=12, transform=ax.transAxes, bbox=box)
         
-        r_str = 'Pearson R: {:.02f}'.format(df.r)
+        r_str = 'Pearson R: {:.02f}'.format(mf.r)
         plt.text(0.4, 0.94, r_str, fontsize=12, transform=ax.transAxes, bbox=box)
         
-        slope_str = 'Slope: {:.02f}'.format(df.r_slope)
+        slope_str = 'Slope: {:.02f}'.format(mf.r_slope)
         plt.text(0.4, 0.88, slope_str, fontsize=12, transform=ax.transAxes, bbox=box)
         
-        intercept_str = 'Intercept: {:.02f}'.format(df.r_intercept)
+        intercept_str = 'Intercept: {:.02f}'.format(mf.r_intercept)
         plt.text(0.4, 0.82, intercept_str, fontsize=12, transform=ax.transAxes, bbox=box)
     
     if show == True:
@@ -561,11 +561,12 @@ def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None):
             stat_values = [mf.num for mf in mf_list]
         
         # Average over a number of days
-        date_list_reduced = date_list[int(average_days/2)::average_days]
+        date_list_reduced = date_list[int((average_days - 1)/2)::average_days]
+        if average_days > 2: date_list_reduced.append(date_list[-1])
         stat_mean, stat_err = aeroct.average_each_n_values(stat_values, average_days)
         if stat == 'Bias':
             stat_err = aeroct.average_each_n_values(stat_errors, average_days)[0]
-        
+        print(len(date_list_reduced), stat_mean.shape, stat_err.shape, average_days)
         # Plot
         if (len(mf_lists) == 1):
             plt.errorbar(date_list_reduced, stat_mean, stat_err, ecolor='gray', elinewidth=0.5)

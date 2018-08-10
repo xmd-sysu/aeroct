@@ -2,9 +2,6 @@
 Created on Jun 22, 2018
 
 @author: savis
-
-TODO: Change aod_type from int to string (needs to be changed in match_up.py too)
-TODO: Add doc-strings to the data-frame classes. 
 '''
 from __future__ import print_function, division
 import os
