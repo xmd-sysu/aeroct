@@ -250,16 +250,16 @@ def get_match_list(data_set2, date_list, data_set1='aeronet', save=True, dir_pat
         # Load pickled MatchFrame if it already exists
         filename0 = '{0}-{1}-{2}-{3}.pkl'.format(data_set_names[1], data_set_names[0],
                                                  aod_s, date.strftime('%Y%m%d'))
-        print(dir_path + subdir_path + 'pkl/' + filename0)
         if os.path.exists(dir_path + subdir_path + 'pkl/' + filename0) & (not dl_again):
             mf_list.append(aeroct.load_from_pickle(filename0,
                                                    dir_path+subdir_path+'pkl/'))
         
         else:
             df1 = aeroct.load(data_set1, date, forecast_time=fc_time1, dl_dir=dl_dir,
-                              dl_again=dl_again)
+                              dl_again=dl_again, verb=False)
+            
             df2 = aeroct.load(data_set2, date, forecast_time=fc_time2, dl_dir=dl_dir,
-                              dl_again=dl_again)
+                              dl_again=dl_again, verb=False)
             
             mf = aeroct.collocate(df1, df2, match_time, match_rad, aod_type=aod_type,
                                   save=save, dir_path=dir_path, save_subdir=subdir)

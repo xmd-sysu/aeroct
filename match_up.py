@@ -565,7 +565,7 @@ def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='to
     save_subdir : bool, optional (Default: True)
         Choose whether to save within sub-directories.
     '''
-    print('Match-up...', end='')
+    print('Performing {0} - {1} match-up.'.format(df2.name, df1.name))
     
     forecasts = (df1.forecast_time, df2.forecast_time)
     data_sets = (df1.data_set, df2.data_set)
@@ -680,12 +680,15 @@ def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='to
     else:
         raise ValueError('Unrecognised data frame types.')
     
-    print('Complete.')
-    
     # Save MatchFrame
     if save:
-        mf.dump(dir_path=dir_path, filetype='csv', subdir=save_subdir)
-        mf.dump(dir_path=dir_path, filetype='pickle', subdir=save_subdir)
+        csv_filepath = mf.dump(dir_path=dir_path, filetype='csv', subdir=save_subdir,
+                               verb=False)
+        pkl_filepath = mf.dump(dir_path=dir_path, filetype='pickle', subdir=save_subdir,
+                               verb=False)
+        
+#         print('MatchFrame object saved to: \n{0}'.format(pkl_filepath))
+        print('Matched data output to: \n{0}'.format(csv_filepath))
     
     return mf
     

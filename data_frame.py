@@ -215,7 +215,7 @@ class DataFrame():
         self.forecast_time = kwargs.setdefault('forecast_time', None)  # [hours]
         self.name = ds_printname[data_set]
         if self.forecast_time is not None:
-            self.name += ' (Lead time: {0} hours)'.format(int(self.forecast_time))
+            self.name += ' (LT: {0})'.format(int(self.forecast_time))
         
         self.sites = kwargs.setdefault('sites', None)
         self.dust_filters = kwargs.setdefault('dust_filters', None)
@@ -669,15 +669,20 @@ class MatchFrame():
             ss_res = np.sum((self.data[1] - self.data[0]) ** 2)
             self.r2 = 1 - ss_res / ss_tot
             
-            # Linear Regression
-            self.r_slope, self.r_intercept, self.r = \
-                stats.linregress(self.data[0], self.data[1])[:3]
-            
-            # Regression of log values
             data0 = self.data[0][(self.data[0] > 0) & (self.data[1] > 0)]
             data1 = self.data[1][(self.data[0] > 0) & (self.data[1] > 0)]
-            self.log_r_slope, self.log_r_intercept, self.log_r = \
-                stats.linregress(np.log10(data0), np.log10(data1))[:3]
+            if data0.size > 2:
+                # Linear Regression
+                self.r_slope, self.r_intercept, self.r = \
+                    stats.linregress(self.data[0], self.data[1])[:3]
+                
+                # Log Regression
+                self.log_r_slope, self.log_r_intercept, self.log_r = \
+                    stats.linregress(np.log10(data0), np.log10(data1))[:3]
+            else:
+                self.r_slope, self.r_intercept, self.r = np.nan, np.nan, np.nan
+                self.log_r_slope, self.log_r_intercept, self.log_r = np.nan, np.nan, np.nan
+                
         else:
             self.r_slope, self.r_intercept, self.r = np.nan, np.nan, np.nan
             self.log_r_slope, self.log_r_intercept, self.log_r = np.nan, np.nan, np.nan
@@ -717,7 +722,7 @@ class MatchFrame():
     
     
     def dump(self, filename=None, dir_path=SCRATCH_PATH+'match_frames/',
-             filetype='pickle', subdir=True):
+             filetype='pickle', subdir=True, verb=True):
         '''
         Save the data frame as a file in the chosen location if the file already exists
         it will be overwritten. The filepath is returned. Note that only pickle files can
@@ -734,6 +739,8 @@ class MatchFrame():
             The type of file to save. This will add a file extension.
         subdir : bool, optional (Default: True)
             Whether to save the MatchFrames within sub-directories.
+        verb : bool, optional (Default: True)
+            If True then a message is printed to the console if it saves successfully.
         '''
         if dir_path[-1] != '/': dir_path += '/'
         
@@ -805,7 +812,7 @@ class MatchFrame():
                 metadata.to_csv(fout, index=False)
                 df.to_csv(fout)
         
-        print('Data frame saved successfully to {0}'.format(filepath))
+        if verb: print('Data frame saved successfully to {0}'.format(filepath))
         return filepath
     
     
@@ -876,7 +883,7 @@ class MatchFrame():
 
 
 def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=None,
-         dl_again=False):
+         dl_again=False, verb=True):
     '''
     Load a data frame for a given date using data from either AERONET, MODIS, or the
     Unified Model (metum). This will allow it to be matched and compared with other data
@@ -902,6 +909,8 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
     dl_again : bool, optional (Default: False)
         If it is True then it will download the data again, even if the file already
         exists.
+    verb: bool, optional (Default: True)
+        If True then the steps being undertaken are printed to the console.
     '''
     if dl_dir[-1] != '/':   dl_dir += '/'
     
@@ -911,7 +920,8 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
     ds_name = ds_filename[data_set]
     
     if data_set == 'aeronet':
-        print('-----------AERONET-----------')
+        if verb: print('-----------AERONET-----------')
+        
         aer_dl_dir = dl_dir + 'AERONET/'
         filepath = '{0}AERONET_{1}'.format(aer_dl_dir, date)
         
@@ -923,9 +933,10 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
             dl_data = pickle.load(r)
         
         aod_df = aeronet.parse_data(dl_data)
-        print('Processing AERONET data...', end='')
+        if verb: print('Processing AERONET data ... ', end='')
         parameters = aeronet.process_data(aod_df, date)
-        print('Complete.')
+        if verb: print('Complete.')
+        
         return DataFrame(*parameters[:-2], data_set=data_set, sites=parameters[-1])
     
     elif data_set[:5] == 'modis':
@@ -934,7 +945,8 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
         elif data_set == 'modis_a': satellite = 'Aqua'
         else:                       satellite = 'Both'
         
-        print('--------MODIS ({0})---------'.format(satellite))
+        if verb: print('--------MODIS ({0})---------'.format(satellite))
+        
         mod_dl_dir = dl_dir + 'MODIS/'
         filepath = '{0}{1}_{2}'.format(mod_dl_dir, ds_name, date)
         modis_filepath = '{0}MODIS_{1}'.format(mod_dl_dir, date)
@@ -950,13 +962,14 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
             with open(modis_filepath, 'r') as r:
                 dl_data = pickle.load(r)
         
-        print('Processing MODIS data...', end='')
+        if verb: print('Processing MODIS data ... ', end='')
         parameters = modis.process_data(dl_data, date, satellite, src=src)
-        print('Complete.')
+        if verb: print('Complete.')
+        
         return DataFrame(*parameters[:-1], data_set=data_set, dust_filters=parameters[-1])
     
     elif data_set == 'metum':
-        print('-----UNIFIED MODEL LT:{0:03d}----'.format(forecast_time))
+        if verb: print('-----UNIFIED MODEL LT:{0:03d}----'.format(forecast_time))
         
         um_dl_dir = dl_dir + 'UM/'
         filepath = '{0}Unified_Model{1:03d}_{2}'.format(um_dl_dir, forecast_time, date)
@@ -968,9 +981,10 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
         with open(filepath, 'r') as r:
             aod_cube = pickle.load(r)
             
-        print('Processing Unified Model data...', end='')
+        if verb: print('Processing Unified Model data ... ', end='')
         aod_cube = metum.process_data(aod_cube, date, forecast_time)
-        print('Complete.')
+        if verb: print('Complete.')
+        
         return DataFrame.from_cube(aod_cube, data_set)
     
     else:
@@ -994,10 +1008,9 @@ def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames/pkl/'):
     if not os.path.exists(dir_path + filename):
         raise ValueError('File does not exist: {0}'.format(dir_path + filename))
     
-    print('Loading data frame(s) from {0}...'.format(dir_path + filename), end='')
+    print('Loading data frame(s) from {0}.'.format(dir_path + filename))
     with open(dir_path + filename, 'r') as reader:
         data_frame = pickle.load(reader)
-    print('Complete')
     return data_frame
 
 
