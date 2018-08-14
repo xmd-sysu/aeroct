@@ -106,7 +106,7 @@ def shiftedColorMap(cmap, data, vmin=None, vmax=None, midpoint=0, name='shiftedc
     return newcmap
 
 
-def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
+def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
              show=True, grid_size=0.5, vmin=None, vmax=None):
     '''
     For DataFrames this function will plot the daily average of the AOD at individual
@@ -118,7 +118,7 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
     Parameters
     ----------
     df : AeroCT DataFrame / MatchFrame, or list of DataFrames / MatchFrames
-    aod_type : {None, 'total' or 'dust'} (Default: None)
+    data_type : {'AOD', 'total' or 'dust'} (Default: 'AOD')
         This describes which AOD data to plot if the data frame is a DataFrame instance.
         If None is chosen and the data frame only includes a single type of AOD then that
         will be plotted. If it includes both then the total AOD will be plotted. If an
@@ -154,8 +154,8 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
     plt.xlim(lon)
     plt.ylim(lat)
     
-    data_frame_cmap = cm.get_cmap('inferno_r')
-    match_frame_cmap = cm.get_cmap('RdYlBu_r')
+    mon_cmap = cm.get_cmap('inferno_r')
+    div_cmap = cm.get_cmap('RdYlBu_r')
     
     # USE IRIS PLOT IF THERE IS A CUBE IN THE DATA FRAME
     if type(df.cube) != type(None):
@@ -164,22 +164,29 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
         
         if df.__class__.__name__ == 'DataFrame':
             plt.title('{0}: AOD mean for {1}'.format(df.name, date))
-            cmap = data_frame_cmap
+            cmap = mon_cmap
         else:
             plt.title('AOD difference (mean) : {0} - {1} for {2}'\
                       .format(df.names[1], df.names[0], date))
-            cmap = shiftedColorMap(match_frame_cmap, day_avg_cube.data, vmin, vmax)
+            cmap = shiftedColorMap(div_cmap, day_avg_cube.data, vmin, vmax)
         
         if plot_type == 'pcolormesh':
-            iplt.pcolormesh(day_avg_cube, cmap=data_frame_cmap, vmin=vmin, vmax=vmax)
+            iplt.pcolormesh(day_avg_cube, cmap=cmap, vmin=vmin, vmax=vmax)
         elif plot_type == 'contourf':
-            iplt.contourf(day_avg_cube, cmap=data_frame_cmap, vmin=vmin, vmax=vmax)
+            iplt.contourf(day_avg_cube, cmap=cmap, vmin=vmin, vmax=vmax)
     
     elif df.__class__.__name__ == 'DataFrame':
         plt.title('{0}: AOD mean for {1}'.format(df.name, date))
+        cmap = mon_cmap
         
         # Select the total or dust AOD data which is in the given bounds
-        aod, lons, lats = df.get_data(aod_type)[:3]
+        if data_type == 'AOD':
+            aod, lons, lats = df.get_data(None)[:3]
+        if data_type == 'total AOD':
+            aod, lons, lats = df.get_data('total')[:3]
+        if data_type == 'dust AOD':
+            aod, lons, lats = df.get_data('dust')[:3]
+        
         in_bounds = (lon[0] < lons) & (lons < lon[1]) & (lat[0] < lats) & (lats < lat[1])
         aod = aod[in_bounds]
         lons = lons[in_bounds]
@@ -195,8 +202,8 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
             aod_site_avg = np.mean(aod * in_sites, axis=1)
 #             aod_site_std = np.sqrt(np.mean(aod**2 * in_sites, axis=1) - aod_site_avg**2)
             
-            plt.scatter(site_lons, site_lats, c=aod_site_avg, cmap=data_frame_cmap,
-                        s=100, vmin=vmin, vmax=vmax)
+            plt.scatter(site_lons, site_lats, c=aod_site_avg, cmap=cmap,
+                        edgecolors='k', linewidths=0.2, s=100, vmin=vmin, vmax=vmax)
         
         # PLOT THE AOD AT EVERY DATA POINT
         elif plot_type == 'scatter':
@@ -222,10 +229,10 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
             aod_grid[dists > THRESHOLD] = np.nan
             
             if plot_type == 'pcolormesh':
-                plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=data_frame_cmap,
+                plt.pcolormesh(grid[0], grid[1], aod_grid, cmap=cmap,
                                vmin=vmin, vmax=vmax)
             elif plot_type == 'contourf':
-                plt.contourf(grid[0], grid[1], aod_grid, cmap=data_frame_cmap,
+                plt.contourf(grid[0], grid[1], aod_grid, cmap=cmap,
                              vmin=vmin, vmax=vmax)
     
     elif df.__class__.__name__ == 'MatchFrame':        
@@ -235,10 +242,16 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
         lons = df.longitudes[in_bounds]
         lats = df.latitudes[in_bounds]
         
-        if aod_type == 'time diff':
+        if data_type == 'time diff':
             data = df.time_diff[in_bounds]
             plt.title('Time difference (mean) ({0} - {1}) for {2}'\
                       .format(df.names[1], df.names[0], date))
+        
+        elif data_type == 'RMS':
+            data = (df.data[1, in_bounds] - df.data[0, in_bounds])**2
+            plt.title('Root Mean Square ({0}, {1}) for {2}'\
+                      .format(df.names[0], df.names[1], date))
+        
         else:
             data = df.data[1, in_bounds] - df.data[0, in_bounds]
             plt.title('AOD difference (mean) ({0} - {1}) for {2}'\
@@ -253,11 +266,15 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
             # Average the AOD at each site and take std
             site_data_avg = np.mean(data * in_sites, axis=1)
             
-            # Shift colour map to have a midpoint of zero
-            cmap = shiftedColorMap(match_frame_cmap, site_data_avg, vmin, vmax)
+            if data_type == 'RMS':
+                site_data_avg = np.sqrt(site_data_avg)
+                cmap = mon_cmap
+            else:
+                # Shift colour map to have a midpoint of zero
+                cmap = shiftedColorMap(div_cmap, site_data_avg, vmin, vmax)
             
-            plt.scatter(site_lons, site_lats, c=site_data_avg, s=(500/fig.dpi)**2, cmap=cmap,
-                        vmin=vmin, vmax=vmax)
+            plt.scatter(site_lons, site_lats, c=site_data_avg, s=(500/fig.dpi)**2,
+                        edgecolors='k', linewidths=0.2, cmap=cmap, vmin=vmin, vmax=vmax)
         
         # OTHERWISE PLOT A GRID
         else:
@@ -267,7 +284,17 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
                             (lat[0] + grid_size/2) : lat[1] : grid_size]
             ll = zip(lons, lats)
             
-            data_grid = griddata(ll, data, tuple(grid), method='linear')
+#             # Get the grid of data to plot
+#             # RMS
+#             if data_type == 'RMS':
+#                 data_grid = np.sqrt(grid_mean(data, lons, lats, grid))
+#                 cmap = mon_cmap
+#             
+#             # AOD / Time difference
+#             else:
+            data_grid = griddata(ll, data, tuple(grid), method='cubic')
+            # Shift colour map to have a midpoint of zero
+            cmap = shiftedColorMap(div_cmap, data_grid, vmin, vmax)
             
             # Mask grid data where there are no nearby points. Firstly create kd-tree
             THRESHOLD = grid_size   # Maximum distance to look for nearby points
@@ -277,8 +304,9 @@ def plot_map(df, aod_type=None, lat=(-90,90), lon=(-180,180), plot_type='pcolorm
             # Copy original result but mask missing values with NaNs
             data_grid[dists > THRESHOLD] = np.nan
             
-            # Shift colour map to have a midpoint of zero
-            cmap = shiftedColorMap(match_frame_cmap, data_grid, vmin, vmax)
+            if data_type == 'RMS':
+                data_grid = np.sqrt(data_grid)
+                cmap = mon_cmap
             
             if plot_type == 'pcolormesh':
                 plt.pcolormesh(grid[0], grid[1], data_grid, cmap=cmap,
@@ -596,6 +624,42 @@ def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None):
     if len(mf_lists) > 1:
         plt.legend(loc='best')
     plt.show()
+
+
+def grid_mean(data, lons, lats, grid):
+    '''
+    Gets the mean value of data for each grid cell. Used in plot_map for RMS.
+    '''
+    # Regrid data
+    grid_size = grid[1,0,1] - grid[1,0,0]
+    lons = np.rint((lons.ravel() - grid_size/2) / grid_size) * grid_size + grid_size/2
+    lats = np.rint((lats.ravel() - grid_size/2) / grid_size) * grid_size + grid_size/2
+    
+    # Sort the latitudes and longitudes to bring duplicate locations together
+    ll = np.array([lons, lats])
+    sort_idx = np.lexsort(ll)
+    sorted_ll = ll[:, sort_idx]
+    sorted_data = data.ravel()[sort_idx]
+    
+    # Obtain a mask to indicate where the new locations begin
+    uniq_mask = np.append(True, np.any(np.diff(sorted_ll, axis=1), axis=0))
+     
+    # Find an ID number to identify the location of each member of the sorted arrays
+    ID = np.full_like(sorted_data, np.nan, dtype=int)
+    for i, new_loc in enumerate(uniq_mask):
+        if new_loc:
+            ID[i] = np.argmin(np.abs(sorted_ll[0,i]-grid[0].ravel() + sorted_ll[1,i]-grid[1].ravel()))
+        else:
+            ID[i] = ID[i-1]
+    
+    # Append the final index to ID so that bincount counts all gridcells
+    ID = np.append(ID, grid[0].size - 1)
+    sorted_data = np.append(sorted_data, np.nan)
+     
+    # Take the average and standard deviations for each location
+    div0 = lambda a, b: np.divide(a, b, out=np.zeros_like(a), where=(b != 0))
+    mean_grid_data = div0(np.bincount(ID, sorted_data), np.bincount(ID))
+    return mean_grid_data.reshape(grid[0].shape)
 
 
 def period_bias_plot(mf_lists, xlim=None, ylim=None, show=True, **kw):

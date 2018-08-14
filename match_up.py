@@ -398,16 +398,17 @@ def model_sat_match(df_m, df_s, match_time, match_dist, min_points=2, limits=(-1
     match_time : float
         The time over which data will be matched and averaged in minutes.
     match_dist : int
-        The size of the grid cells for which data will be matched and averaged in degrees.
+        Half the size of the grid cells for which data will be matched and averaged in degrees.
     min_points : int, optional (Default: 2)
         The minimum number of points from both df1 and df2 in a given matched data point
         that is required to store that data point.
     '''
+    match_dist = 2 * match_dist
     
     if ((df_m.aod[1] is None) & (df_m.dust_filters is None)) | \
        ((df_s.aod[1] is None) & (df_s.dust_filters is None)):
         raise ValueError('Both data frames must have dust AOD data.')
-    
+        
     # Include only dust AOD data
     s_aod, s_lons, s_lats, s_real_times = df_s.get_data(aod_type='dust')
     
@@ -534,7 +535,7 @@ def model_sat_match(df_m, df_s, match_time, match_dist, min_points=2, limits=(-1
 
 
 def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='total',
-              save=True, dir_path=SCRATCH_PATH+'match_frames/', save_subdir=True):
+              save=True, save_dir=SCRATCH_PATH+'match_frames/', save_subdir=True):
     '''
     This matches up elements in time and space from two data frames with the same date
     and wavelength. The output is a MatchFrame containing the averaged AOD data
@@ -560,7 +561,7 @@ def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='to
     save : bool, optional (Default: True)
         Choose whether to save the resulting MatchFrame as both a csv file and a pickled
         object.
-    dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
+    save_dir : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
         The path to the directory where the MatchFrame will be saved.
     save_subdir : bool, optional (Default: True)
         Choose whether to save within sub-directories.
@@ -682,9 +683,9 @@ def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='to
     
     # Save MatchFrame
     if save:
-        csv_filepath = mf.dump(dir_path=dir_path, filetype='csv', subdir=save_subdir,
+        csv_filepath = mf.dump(save_dir=save_dir, filetype='csv', subdir=save_subdir,
                                verb=False)
-        pkl_filepath = mf.dump(dir_path=dir_path, filetype='pickle', subdir=save_subdir,
+        pkl_filepath = mf.dump(save_dir=save_dir, filetype='pickle', subdir=save_subdir,
                                verb=False)
         
 #         print('MatchFrame object saved to: \n{0}'.format(pkl_filepath))

@@ -161,7 +161,7 @@ def download_range(data_set, date_list, dl_dir=SCRATCH_PATH+'downloads/',
                 pickle.dump(dl_data, w, -1)
 
 
-def get_match_list(data_set1, data_set2, date_list, save=True, dir_path=SCRATCH_PATH+'match_frames/',
+def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_PATH+'match_frames/',
                    **kwargs):
     '''
     This will return a list of MatchFrames for matched data-sets for a corresponding
@@ -179,7 +179,7 @@ def get_match_list(data_set1, data_set2, date_list, save=True, dir_path=SCRATCH_
     save : bool, optional (Default: True)
         If True then each MatchFrame will be saved as a pickled object using the dump()
         method.
-    dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
+    save_dir : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
         The directory within which to save the match_frames.
     kwargs:
     forecast_time1 = int (Default: True)
@@ -197,10 +197,10 @@ def get_match_list(data_set1, data_set2, date_list, save=True, dir_path=SCRATCH_
     dl_dir : str (Default: '/scratch/{USER}/aeroct/downloads/')
         The directory within which to save downloaded data.
     subdir : bool (Default: True)
-        If different datasets should be saved within subdirectories within 'dir_path'.
+        If different datasets should be saved within subdirectories within 'save_dir'.
     '''
     
-    if dir_path[-1] != '/': dir_path += '/'
+    if save_dir[-1] != '/': save_dir += '/'
     
     # kwargs
     fc_time1 = kwargs.setdefault('forecast_time1', None)
@@ -247,9 +247,9 @@ def get_match_list(data_set1, data_set2, date_list, save=True, dir_path=SCRATCH_
         # Load pickled MatchFrame if it already exists
         filename0 = '{0}-{1}-{2}-{3}.pkl'.format(data_set_names[1], data_set_names[0],
                                                  aod_s, date.strftime('%Y%m%d'))
-        if os.path.exists(dir_path + subdir_path + 'pkl/' + filename0) & (not dl_again):
+        if os.path.exists(save_dir + subdir_path + 'pkl/' + filename0) & (not dl_again):
             mf_list.append(aeroct.load_from_pickle(filename0,
-                                                   dir_path+subdir_path+'pkl/'))
+                                                   save_dir+subdir_path+'pkl/'))
         
         else:
             df1 = aeroct.load(data_set1, date, forecast_time=fc_time1, dl_dir=dl_dir,
@@ -259,7 +259,7 @@ def get_match_list(data_set1, data_set2, date_list, save=True, dir_path=SCRATCH_
                               dl_again=dl_again, verb=False)
             
             mf = aeroct.collocate(df1, df2, match_time, match_rad, aod_type=aod_type,
-                                  save=save, dir_path=dir_path, save_subdir=subdir)
+                                  save=save, save_dir=save_dir, save_subdir=subdir)
             mf_list.append(mf)
     
     return mf_list

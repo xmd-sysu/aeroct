@@ -210,9 +210,10 @@ class DataFrame():
         self.wavelength = wavelength                # [nm]
         self.data_set   = data_set                  # The name of the data set
         self.forecast_time = kwargs.setdefault('forecast_time', None)  # [hours]
+        # Name for printing
         self.name = ds_printname[data_set]
         if self.forecast_time is not None:
-            self.name += ' (LT: {0})'.format(int(self.forecast_time))
+            self.name += ' (T+{0}h)'.format(int(self.forecast_time))
         
         self.sites = kwargs.setdefault('sites', None)
         self.dust_filters = kwargs.setdefault('dust_filters', None)
@@ -350,7 +351,7 @@ class DataFrame():
         return aod, lon, lat, times
     
     
-    def dump(self, filename=None, dir_path=SCRATCH_PATH+'data_frames/'):
+    def dump(self, filename=None, save_dir=SCRATCH_PATH+'data_frames/'):
         '''
         Saves the DataFrame as a pickled file in the chosen location. Note that some
         DataFrames can be very large and take some time to save / load.
@@ -359,11 +360,11 @@ class DataFrame():
         ----------
         filename : str, optional (Default: '{data_set}_YYYYMMDD')
             What to name the saved file.
-        dir_path : str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
+        save_dir : str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
             The path to the directory where the file will be saved.
         '''
         # Make directory if it does not exist
-        os.system('mkdir -p {0}'.format(dir_path))
+        os.system('mkdir -p {0}'.format(save_dir))
         file_ext = 'pkl'
         
         if filename != None:
@@ -378,7 +379,7 @@ class DataFrame():
             raise ValueError('data_set attribute invalid. Cannot create filename')
         
         # Write file
-        filepath = dir_path + filename + file_ext
+        filepath = save_dir + filename + file_ext
         os.system('touch {0}'.format(filepath))
         with open(filepath, 'w') as writer:
             pickle.dump(self, writer, -1)
@@ -647,7 +648,7 @@ class MatchFrame():
         for i in [0,1]:
             self.names[i] = ds_printname[data_sets[i]]
             if self.forecast_times[i] is not None:
-                self.names[i] += ' (LT: {0:03d})'.format(int(self.forecast_times[i]))
+                self.names[i] += ' (T+{0}h)'.format(int(self.forecast_times[i]))
         self.additional_data = kw.setdefault('additional_data', [])
         
         # Stats
@@ -718,7 +719,7 @@ class MatchFrame():
         return df
     
     
-    def dump(self, filename=None, dir_path=SCRATCH_PATH+'match_frames/',
+    def dump(self, filename=None, save_dir=SCRATCH_PATH+'match_frames/',
              filetype='pickle', subdir=True, verb=True):
         '''
         Save the data frame as a file in the chosen location if the file already exists
@@ -730,7 +731,7 @@ class MatchFrame():
         ----------
         filename : str, optional (Default: '{dataset2}-{dataset1}-{aod-type}-YYYYMMDD')
             What to name the saved file.
-        dir_path : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
+        save_dir : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
             The path to the directory where the file will be saved.
         filetype : {'pickle', 'csv'}, optional (Default: 'pickle')
             The type of file to save. This will add a file extension.
@@ -739,7 +740,7 @@ class MatchFrame():
         verb : bool, optional (Default: True)
             If True then a message is printed to the console if it saves successfully.
         '''
-        if dir_path[-1] != '/': dir_path += '/'
+        if save_dir[-1] != '/': save_dir += '/'
         
         # Put the forecast time onto the end of model data-set names for the filename
         data_set_names = []
@@ -752,25 +753,25 @@ class MatchFrame():
         
         # Subdirectories
         if subdir:
-            dir_path += '{0}-{1}-{2}/'.format(data_set_names[1], data_set_names[0],
+            save_dir += '{0}-{1}-{2}/'.format(data_set_names[1], data_set_names[0],
                                               self.aod_type[0])
         
         # File extension
         if filetype == 'pickle':
-            dir_path += 'pkl/'
+            save_dir += 'pkl/'
             file_ext = '.pkl'
         elif filetype == 'csv':
             file_ext = '.csv'
         
         # Make directory if it does not exist
-        os.system('mkdir -p {0}'.format(dir_path))
+        os.system('mkdir -p {0}'.format(save_dir))
         
         # Create the filename
         if filename is None:
             filename = '{0}-{1}-{2}-{3}'.format(data_set_names[1], data_set_names[0],
                                         self.aod_type[0], self.date.strftime('%Y%m%d'))
         
-        filepath = dir_path + filename + file_ext
+        filepath = save_dir + filename + file_ext
         os.system('touch {0}'.format(filepath))
         
         # Write pickle file
