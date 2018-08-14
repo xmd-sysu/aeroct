@@ -293,8 +293,6 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
 #             # AOD / Time difference
 #             else:
             data_grid = griddata(ll, data, tuple(grid), method='cubic')
-            # Shift colour map to have a midpoint of zero
-            cmap = shiftedColorMap(div_cmap, data_grid, vmin, vmax)
             
             # Mask grid data where there are no nearby points. Firstly create kd-tree
             THRESHOLD = grid_size   # Maximum distance to look for nearby points
@@ -307,6 +305,9 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
             if data_type == 'RMS':
                 data_grid = np.sqrt(data_grid)
                 cmap = mon_cmap
+            else:
+                # Shift colour map to have a midpoint of zero
+                cmap = shiftedColorMap(div_cmap, data_grid, vmin, vmax)
             
             if plot_type == 'pcolormesh':
                 plt.pcolormesh(grid[0], grid[1], data_grid, cmap=cmap,
