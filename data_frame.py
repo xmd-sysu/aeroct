@@ -402,19 +402,18 @@ class DataFrame():
         if isinstance(bounds[0], (int, long, float)):
             in_lon = (self.longitudes >= bounds[0]) & (self.longitudes <= bounds[1])
             in_lat = (self.latitudes >= bounds[2]) & (self.latitudes <= bounds[3])
-            
+            in_bounds = np.array(in_lon & in_lat)
         
         else:
-            in_lon = np.zeros_like(self.longitudes)
-            in_lat = np.zeros_like(self.latitudes)
+            in_bounds = np.zeros_like(self.longitudes)
             for bound in bounds:
-                in_lon += (self.longitudes >= bound[0]) & (self.longitudes <= bound[1])
-                in_lat += (self.latitudes >= bound[2]) & (self.latitudes <= bound[3])
-            in_lon = np.array(in_lon, dtype=bool)
-            in_lat = np.array(in_lat, dtype=bool)
+                in_lon = (self.longitudes >= bound[0]) & (self.longitudes <= bound[1])
+                in_lat = (self.latitudes >= bound[2]) & (self.latitudes <= bound[3])
+                in_bounds += (in_lon & in_lat)
+            in_bounds = np.array(in_bounds, dtype=bool)
         
         in_time = (self.times >= time_bounds[0]) & (self.times <= time_bounds[1])
-        in_bounds = (in_lon & in_lat & in_time)
+        in_bounds = np.array(in_bounds & in_time)
         
         if self.cube is not None:
             lons = self.longitudes[in_lon]
@@ -465,7 +464,8 @@ class DataFrame():
         ext_description = 'Extraction for lon, lat: {0}, time: {1}'\
                           .format(bounds, time_bounds)
         if hasattr(self, 'additional_data'):
-            additional_data = self.additional_data.append(ext_description)
+            additional_data = list(self.additional_data)
+            additional_data.append(ext_description)
         else:
             additional_data = [ext_description]
         
@@ -513,6 +513,9 @@ class MatchFrame():
     times : 1D NumPy array
         This contains the values of the time in hours from 00:00 on the data's date,
         either at every data point or along an axis.
+    sites : NumPy array of str or None
+        The names of the AERONET sites for each of the data points if AERONET data has
+        been matched, otherwise it is None.
     date : datetime, or list of datetimes
         The date for which the MatchFrame instance contains data. It is a list if
         multiple days have been concatenated into a single MatchFrame.
@@ -616,6 +619,9 @@ class MatchFrame():
     aod_type : {'total' or 'dust'}
         The type of AOD data which has been matched.
     Optional kwargs:
+    sites : NumPy array of str
+        The names of the AERONET sites for each of the data points if AERONET data has
+        been matched.
     cube : Iris cube or None
         If the two data-sets are both gridded then this should be assigned to a cube
         containg bias data.
@@ -634,6 +640,7 @@ class MatchFrame():
         self.longitudes = longitudes        # [degrees]
         self.latitudes  = latitudes         # [degrees]
         self.times      = times             # [hours since 00:00:00 on date]
+        self.sites = kw.setdefault('sites', None) # AERONET site names
         
         # Meta-data
         self.date           = date            # (datetime)
@@ -703,10 +710,10 @@ class MatchFrame():
         Returns a Pandas dataframe containing the data for every data point. It does not
         contain metadata such as the date and wavelength.
         '''
-        data_array = np.array([self.times, self.latitudes, self.longitudes,
+        data_array = [self.times, self.latitudes, self.longitudes,
                                self.data[0], self.data_std[0], self.data_num[0],
                                self.data[1], self.data_std[1], self.data_num[1],
-                               self.time_diff]).T
+                               self.time_diff]
         headers = ['Time (hours)', 'Latitude', 'Longitude',
                    '1: AOD average'.format(self.names[0]),
                    '1: AOD stdev'.format(self.names[0]),
@@ -715,7 +722,12 @@ class MatchFrame():
                    '2: AOD stdev'.format(self.names[1]),
                    '2: Number of points'.format(self.names[1]),
                    'Average time difference']
-        df = pd.DataFrame(data_array, columns=headers)
+        
+        if self.sites is not None:
+            headers.insert(1, 'AERONET site')
+            data_array.insert(1, self.sites)
+        
+        df = pd.DataFrame(np.array(data_array).T, columns=headers)
         return df
     
     
@@ -831,19 +843,18 @@ class MatchFrame():
         if isinstance(bounds[0], (int, long, float)):
             in_lon = (self.longitudes >= bounds[0]) & (self.longitudes <= bounds[1])
             in_lat = (self.latitudes >= bounds[2]) & (self.latitudes <= bounds[3])
-            
+            in_bounds = np.array(in_lon & in_lat)
         
         else:
-            in_lon = np.zeros_like(self.longitudes)
-            in_lat = np.zeros_like(self.latitudes)
+            in_bounds = np.zeros_like(self.longitudes)
             for bound in bounds:
-                in_lon += (self.longitudes >= bound[0]) & (self.longitudes <= bound[1])
-                in_lat += (self.latitudes >= bound[2]) & (self.latitudes <= bound[3])
-            in_lon = np.array(in_lon, dtype=bool)
-            in_lat = np.array(in_lat, dtype=bool)
+                in_lon = (self.longitudes >= bound[0]) & (self.longitudes <= bound[1])
+                in_lat = (self.latitudes >= bound[2]) & (self.latitudes <= bound[3])
+                in_bounds += (in_lon & in_lat)
+            in_bounds = np.array(in_bounds, dtype=bool)
         
         in_time = (self.times >= time_bounds[0]) & (self.times <= time_bounds[1])
-        in_bounds = (in_lon & in_lat & in_time)
+        in_bounds = np.array(in_bounds & in_time)
         
         if self.cube is not None:
             lons = self.longitudes[in_lon]
@@ -868,7 +879,7 @@ class MatchFrame():
         ext_description = 'Extraction for lon, lat: {0}, time: {1}'\
                           .format(bounds, time_bounds)
         if hasattr(self, 'additional_data'):
-            additional_data = self.additional_data
+            additional_data = list(self.additional_data)
             additional_data.append(ext_description)
         else:
             additional_data = [ext_description]
@@ -1044,15 +1055,12 @@ def concatenate_data_frames(df_list):
             
             # Check that the wavelengths and data-sets all match
             if df.wavelength != df_list[0].wavelength:
-                raise ValueError('The list of data frames do not contain data for the same\
-                                  wavelength.')
+                raise ValueError('The list of data frames do not contain data for the same wavelength.')
             if df.data_sets != df_list[0].data_sets:
-                raise ValueError('The list of data frames do not contain data from the\
-                                  same data-sets.')
+                raise ValueError('The list of data frames do not contain data from the same data-sets.')
             if df.additional_data != df_list[0].additional_data:
-                raise ValueError('The list of data frames do not contain\
-                                  data with the same meta-data: \n{0}{1}'\
-                                  .fomat(additional_data, df.additional_data))
+                raise ValueError('The list of data frames do not contain data with the same meta-data: \n{0}{1}'\
+                                  .format(additional_data, df.additional_data))
             
             dates.append(df.date)
             data0.extend(df.data[0])
@@ -1069,6 +1077,7 @@ def concatenate_data_frames(df_list):
         data = np.array([data0, data1])
         data_std = np.array([data_std0, data_std1])
         data_num = np.array([data_num0, data_num1])
+        time_diff = np.array(time_diff)
         longitudes, latitudes = np.array(longitudes), np.array(latitudes)
         times = np.array(times)
         
@@ -1101,7 +1110,7 @@ def concatenate_data_frames(df_list):
             else: aod1.extend(df.aod[1].ravel())
             longitudes.extend(df.longitudes)
             latitudes.extend(df.latitudes)
-            times.extend(times)
+            times.extend(df.times)
         
         if aod0 is not None: aod0 = np.array(aod0)
         if aod1 is not None: aod1 = np.array(aod1)
@@ -1109,5 +1118,10 @@ def concatenate_data_frames(df_list):
         longitudes, latitudes = np.array(longitudes), np.array(latitudes)
         times = np.array(times)
         
+        if isinstance(df_list[0].dust_filters, dict):
+            dust_filters = pd.concat([pd.DataFrame.from_dict(df.dust_filters) for df in df_list])
+        else:
+            dust_filters = None
+        
         return DataFrame(aod, longitudes, latitudes, times, dates, wavelength, data_set,
-                         forecast_time=fc_time)
+                         forecast_time=fc_time, dust_filters=dust_filters)

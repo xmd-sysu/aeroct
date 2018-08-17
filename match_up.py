@@ -108,6 +108,22 @@ def match_to_site(df, site_ll, aod_type=None, match_dist=25):
     return aod[idx], times[idx]
 
 
+def get_aeronet_sites(a_df, lons):
+    '''
+    Given an AERONET data-frame and a list of longitudes return the names
+    of the aeronet sites for each of longitude.
+    '''
+    # Get a dictionary to find site names from longitude (times 100 and rounded)
+    site_lons, unique_idx = np.unique(np.rint(a_df.longitudes * 100), return_index=True)
+    site_names = np.array(a_df.sites)[unique_idx]
+    site_dict = dict(zip(site_lons, site_names))
+    
+    # Get the list of AERONET sites for each longitude
+    lons = np.rint(lons * 100)
+    aeronet_sites = np.array([site_dict[lon] for lon in lons])
+    return aeronet_sites
+
+
 def sat_anet_match(df_s, df_a, match_time, match_rad, min_points=2, aod_type='total'):
     '''
     Return the AOD average, standard deviation, number of points, longitude, latitude
@@ -242,7 +258,11 @@ def sat_anet_match(df_s, df_a, match_time, match_rad, min_points=2, aod_type='to
     
     # Return only elements for which there is enough of both satellite and AERONET data
     r = (num[0] >= min_points) & (num[1] >= min_points)
-    return [avg[:, r], std[:, r], num[:, r], time_diff[r], lons[r], lats[r], times[r]]
+    
+    # Get the list of AERONET site names
+    sites = get_aeronet_sites(df_a, lons[r])
+    
+    return [avg[:, r], std[:, r], num[:, r], time_diff[r], lons[r], lats[r], times[r], sites]
 
 
 def model_anet_match(df_m, df_a, match_time, match_rad, min_points=2):
@@ -380,7 +400,11 @@ def model_anet_match(df_m, df_a, match_time, match_rad, min_points=2):
     
     # Return only elements for which there is enough of both satellite and AERONET data
     r = (num[0] >= min_points) & (num[1] >= min_points)
-    return [avg[:, r], std[:, r], num[:, r], time_diff[r], lons[r], lats[r], times[r]]
+    
+    # Get the list of AERONET site names
+    sites = get_aeronet_sites(df_a, lons[r])
+    
+    return [avg[:, r], std[:, r], num[:, r], time_diff[r], lons[r], lats[r], times[r], sites]
 
 
 def model_sat_match(df_m, df_s, match_time, match_dist, min_points=2, limits=(-180, 180, -90, 90)):
@@ -592,21 +616,23 @@ def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='to
             param3 = -1 * params[3]
             param012.append(param3)
             param012.extend(params[4:])
+            params = param012
         
-        [aod, std, num, time_diff, lon, lat, time] = param012
+        [aod, std, num, time_diff, lon, lat, time, sites] = params
         
         mf = MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
-                        match_dist_km, df1.wavelength, forecasts, data_sets, aod_type)
+                        match_dist_km, df1.wavelength, forecasts, data_sets, aod_type,
+                        sites=sites)
     
     # Model-AERONET match-up
     elif (df1.cube != None) & (df2.data_set == 'aeronet'):
         params = model_anet_match(df1, df2, match_time, match_dist, min_points)
         
-        [aod, std, num, time_diff, lon, lat, time] = params
+        [aod, std, num, time_diff, lon, lat, time, sites] = params
         
         mf =  MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
                          match_dist_km, df1.wavelength, forecasts, data_sets,
-                         aod_type='dust')
+                         aod_type='dust', sites=sites)
     
     # Same as above but the other way around
     elif (df1.data_set == 'aeronet') & (df2.cube != None):
@@ -616,11 +642,11 @@ def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='to
         param012.append(param3)
         param012.extend(params[4:])
         
-        [aod, std, num, time_diff, lon, lat, time] = param012
+        [aod, std, num, time_diff, lon, lat, time, sites] = param012
         
         mf =  MatchFrame(aod, std, num, time_diff, lon, lat, time, df1.date, match_time,
                          match_dist_km, df1.wavelength, forecasts, data_sets,
-                         aod_type='dust')
+                         aod_type='dust', sites=sites)
     
     # Model-Satellite match-up
     elif (df1.cube != None) & (df2.cube is None):

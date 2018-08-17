@@ -118,12 +118,13 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
     Parameters
     ----------
     df : AeroCT DataFrame / MatchFrame, or list of DataFrames / MatchFrames
-    data_type : {'AOD', 'total' or 'dust'} (Default: 'AOD')
-        This describes which AOD data to plot if the data frame is a DataFrame instance.
-        If None is chosen and the data frame only includes a single type of AOD then that
-        will be plotted. If it includes both then the total AOD will be plotted. If an
-        AOD type is chosen which the data frame does not include then a ValueError will
-        be raised.
+    data_type : str, optional (Default: 'AOD')
+        This describes which type of data to plot.
+        If df is a DataFrame(s) then it describes the type of AOD data to plot. It can
+        take the values 'AOD', 'dust AOD', or 'total AOD'. If 'AOD' is chosen then the
+        total AOD will be plotted, unless the data frame has only dust AOD in which case
+        that will be plotted.
+        If df is a MatchFrame(s) then it can take the 
     lat : tuple, optional (Default: (-90, 90))
         A tuple of the latitude bounds of the plot in degrees.
     lon : tuple, optional (Default: (-180, 180))
@@ -144,6 +145,8 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
     # Convert a list of match frames to a single match frame that may be plotted
     if isinstance(df, list):
         df = aeroct.concatenate_data_frames(df)
+        date = '{0} to {1}'.format(df.date[0].date(), df.date[-1].date())
+    elif isinstance(df.date, list):
         date = '{0} to {1}'.format(df.date[0].date(), df.date[-1].date())
     else:
         date = df.date.date()
@@ -176,15 +179,15 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
             iplt.contourf(day_avg_cube, cmap=cmap, vmin=vmin, vmax=vmax)
     
     elif df.__class__.__name__ == 'DataFrame':
-        plt.title('{0}: AOD mean for {1}'.format(df.name, date))
+        plt.title('{0}: AOD Mean For {1}'.format(df.name, date))
         cmap = mon_cmap
         
         # Select the total or dust AOD data which is in the given bounds
         if data_type == 'AOD':
             aod, lons, lats = df.get_data(None)[:3]
-        if data_type == 'total AOD':
+        if data_type in ['total', 'total AOD']:
             aod, lons, lats = df.get_data('total')[:3]
-        if data_type == 'dust AOD':
+        if data_type in ['dust', 'dust AOD']:
             aod, lons, lats = df.get_data('dust')[:3]
         
         in_bounds = (lon[0] < lons) & (lons < lon[1]) & (lat[0] < lats) & (lats < lat[1])
@@ -242,9 +245,10 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
         lons = df.longitudes[in_bounds]
         lats = df.latitudes[in_bounds]
         
+        # Get the data for which to find the area average and the title
         if data_type == 'time diff':
             data = df.time_diff[in_bounds]
-            plt.title('Time difference (mean) ({0} - {1}) for {2}'\
+            plt.title('Time Difference (mean) ({0} - {1}) for {2}'\
                       .format(df.names[1], df.names[0], date))
         
         elif data_type == 'RMS':
@@ -252,9 +256,14 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
             plt.title('Root Mean Square ({0}, {1}) for {2}'\
                       .format(df.names[0], df.names[1], date))
         
+        elif data_type == 'heatmap':
+            data = np.ones_like(df.data[1, in_bounds])
+            plt.title('Number Of Matched Data Points ({0}, {1}) for {2}'\
+                      .format(df.names[0], df.names[1], date))
+        
         else:
             data = df.data[1, in_bounds] - df.data[0, in_bounds]
-            plt.title('AOD difference (mean) ({0} - {1}) for {2}'\
+            plt.title('AOD Difference (mean) ({0} - {1}) for {2}'\
                       .format(df.names[1], df.names[0], date))
         
         # If AERONET is included plot the sites on a map
@@ -264,16 +273,19 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
             site_lats = lats[i_site]
             in_sites = site_lons[:, np.newaxis] == lons
             # Average the AOD at each site and take std
-            site_data_avg = np.mean(data * in_sites, axis=1)
+            site_data = np.mean(data * in_sites, axis=1)
             
             if data_type == 'RMS':
-                site_data_avg = np.sqrt(site_data_avg)
+                site_data = np.sqrt(site_data)
+                cmap = mon_cmap
+            elif data_type == 'heatmap':
+                site_data = np.sum(in_sites, axis=1)
                 cmap = mon_cmap
             else:
                 # Shift colour map to have a midpoint of zero
-                cmap = shiftedColorMap(div_cmap, site_data_avg, vmin, vmax)
+                cmap = shiftedColorMap(div_cmap, site_data, vmin, vmax)
             
-            plt.scatter(site_lons, site_lats, c=site_data_avg, s=(500/fig.dpi)**2,
+            plt.scatter(site_lons, site_lats, c=site_data, s=(500/fig.dpi)**2,
                         edgecolors='k', linewidths=0.2, cmap=cmap, vmin=vmin, vmax=vmax)
         
         # OTHERWISE PLOT A GRID
@@ -284,15 +296,12 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
                             (lat[0] + grid_size/2) : lat[1] : grid_size]
             ll = zip(lons, lats)
             
-#             # Get the grid of data to plot
-#             # RMS
-#             if data_type == 'RMS':
-#                 data_grid = np.sqrt(grid_mean(data, lons, lats, grid))
-#                 cmap = mon_cmap
-#             
-#             # AOD / Time difference
-#             else:
-            data_grid = griddata(ll, data, tuple(grid), method='cubic')
+            if data_type == 'heatmap':
+                lon_edges = np.arange(lon[0], lon[1]+1e-5, grid_size)
+                lat_edges = np.arange(lat[0], lat[1]+1e-5, grid_size)
+                data_grid = np.histogram2d(lons, lats, [lon_edges, lat_edges])[0]
+            else:
+                data_grid = griddata(ll, data, tuple(grid), method='cubic')
             
             # Mask grid data where there are no nearby points. Firstly create kd-tree
             THRESHOLD = grid_size   # Maximum distance to look for nearby points
@@ -304,6 +313,8 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
             
             if data_type == 'RMS':
                 data_grid = np.sqrt(data_grid)
+            
+            if data_type in ['RMS', 'heatmap']:
                 cmap = mon_cmap
             else:
                 # Shift colour map to have a midpoint of zero
@@ -318,6 +329,8 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
     
     ax.coastlines()
     plt.colorbar(orientation='horizontal')
+    
+    fig.tight_layout()
     if show == True:
         plt.show()
         return
@@ -358,6 +371,8 @@ def scatterplot(mf, stats=True, scale='log', xlim=(None, None), ylim=(None, None
     '''
     if isinstance(mf, list):
         mf = aeroct.concatenate_data_frames(mf)
+        date_str = '{0} to {1}'.format(mf.date[0].date(), mf.date[-1].date())
+    elif isinstance(mf.date, list):
         date_str = '{0} to {1}'.format(mf.date[0].date(), mf.date[-1].date())
     else:
         date_str = '{0}'.format(mf.date.date())
@@ -427,9 +442,9 @@ def scatterplot(mf, stats=True, scale='log', xlim=(None, None), ylim=(None, None
         
         if error == True:
             kwargs.setdefault('ecolor', 'gray')
-            ax.errorbar(mf.data[0], mf.data[1], mf.data_std[1], mf.data_std[0], **kwargs)
+            ax.errorbar(mf.data[0], mf.data[1], mf.data_std[1], mf.data_std[0], zorder=0, **kwargs)
         else:
-            ax.plot(mf.data[0], mf.data[1], **kwargs)
+            ax.plot(mf.data[0], mf.data[1], zorder=0, **kwargs)
     
     # Otherwise plot a heat-map
     else:
@@ -446,7 +461,7 @@ def scatterplot(mf, stats=True, scale='log', xlim=(None, None), ylim=(None, None
     if ylim[0] is None:
         ylim = ax.get_ylim()
     
-    x = np.linspace(1e-4, 10, 101)
+    x = np.linspace(1e-4, 10, 1001)
     y = mf.r_intercept + x * mf.r_slope
     x_data = mf.data[0][(mf.data[0] > 0) & (mf.data[1] > 0)]
     y_data = mf.data[1][(mf.data[0] > 0) & (mf.data[1] > 0)]
@@ -454,7 +469,8 @@ def scatterplot(mf, stats=True, scale='log', xlim=(None, None), ylim=(None, None
                 linregress(np.log10(x_data), np.log10(y_data))[:3]
     y_log = 10 ** (log_r_intercept + np.log10(x) * log_r_slope)
     
-#     ax.plot(x, y_log, 'g-.', lw=2, label='Regression') # Regression line
+#     ax.plot(x, y, 'g-.', lw=2, label='Linear regression') # Regression line
+#     ax.plot(x, y_log, 'b-', lw=2, label='Logarithmic regression') # Regression line
     ax.plot(x, x, c='gray', ls='--', lw=2, label='y = x') # y = x line
     
     # AOD source for dust
@@ -528,6 +544,7 @@ def scatterplot(mf, stats=True, scale='log', xlim=(None, None), ylim=(None, None
         intercept_str = 'Intercept: {:.02f}'.format(mf.r_intercept)
         plt.text(0.4, 0.82, intercept_str, fontsize=12, transform=ax.transAxes, bbox=box)
     
+    fig.tight_layout()
     if show == True:
         plt.show()
         return
@@ -535,9 +552,9 @@ def scatterplot(mf, stats=True, scale='log', xlim=(None, None), ylim=(None, None
         return fig
 
 
-def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None):
+def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None, show=True):
     '''
-    Given a list containing MatchFrames a certain statistic is plotted over time.
+    Given a list containing MatchFrames a certain daily statistic is plotted over time.
     Additionally multiple of these lists may be passed in which case they will be
     plotted on the same axes.
     
@@ -551,7 +568,9 @@ def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None):
     stat : str
         This gives the type of statistic to plot over time. Options are:
         'RMS' - Root mean square error
-        'Bias' - Daily AOD bias mean (data set 2 - data set 1) 
+        'RMS norm' - Root mean square error normalised by the mean AOD
+        'Bias' - AOD bias mean (data set 2 - data set 1)
+        'Bias norm' - AOD bias mean normalised by the mean AOD
         'R'- Pearson correlation coefficient to the regression line
         'Number' - Number of daily match-ups
     xlim : datetime tuple, optional (Default: None)
@@ -559,8 +578,10 @@ def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None):
     ylim : float tuple, optional (Default: None)
         The limits for the AOD bias. If None then the axis is autoscaled to the data.
     average_days : int, optional (Default: None)
-        The number of days over which to average the statistic for each plotted point.
-        If None then the total number of days is divided by 50 and rounded.
+        The number of days over which to perform a running average. If None then the
+        total number of days is divided by 50 and rounded.
+    show : bool, optional (Default: True)
+        If True, the plot is shown otherwise the figure is passed as an output.    
     '''
     if not isinstance(mf_lists[0], list):
         mf_lists = [mf_lists]
@@ -578,24 +599,34 @@ def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None):
         if stat == 'RMS':
             stat_name = 'Root Mean Square'
             stat_values = [mf.rms for mf in mf_list]
-        if stat == 'Bias':
+        elif stat == 'RMS norm':
+            stat_name = 'Normalised Root Mean Square'
+            stat_values = [mf.rms / np.mean(mf.data**2)**.5 for mf in mf_list]
+        elif stat == 'Bias':
             stat_name = 'Mean Bias (data set 2 - data set 1)'
             stat_values = [mf.bias_mean for mf in mf_list]
             stat_errors = [mf.bias_std for mf in mf_list]
-        if stat == 'R':
+        elif stat == 'Bias norm':
+            stat_name = 'Normalised Mean Bias (data set 2 - data set 1)'
+            stat_values = [mf.bias_mean / np.mean(mf.data) for mf in mf_list]
+            stat_errors = [mf.bias_std / np.mean(mf.data) for mf in mf_list]
+        elif stat == 'R':
             stat_name = 'Pearson Correlation Coefficient'
             stat_values = [mf.r for mf in mf_list]
-        if stat == 'Number':
+        elif stat == 'Number':
             stat_name = 'Number of Matched Points'
             stat_values = [mf.num for mf in mf_list]
-        
+        else:
+            raise ValueError('Invalid statistic: {0}'.format(stat))
+                
         # Average over a number of days
         date_list_reduced = date_list[int((average_days - 1)/2)::average_days]
         if average_days > 2: date_list_reduced.append(date_list[-1])
         stat_mean, stat_err = aeroct.average_each_n_values(stat_values, average_days)
+        
         if stat == 'Bias':
             stat_err = aeroct.average_each_n_values(stat_errors, average_days)[0]
-        print(len(date_list_reduced), stat_mean.shape, stat_err.shape, average_days)
+        
         # Plot
         if (len(mf_lists) == 1):
             plt.errorbar(date_list_reduced, stat_mean, stat_err, ecolor='gray', elinewidth=0.5)
@@ -610,7 +641,7 @@ def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None):
     plt.xlabel('Date')
     plt.ylabel(stat_name)
     ax.tick_params(direction='in', bottom=True, top=True, left=True, right=True)
-    title1 = 'Statistic Over Time For Collocated {0} AOD data'.format(mf.aod_type)
+    title1 = 'Daily statistic Over Time For Collocated {0} AOD data'.format(mf.aod_type)
     if len(mf_lists) > 1:
         title2 = '\nData Set 1: {0}, Data Set 2: See Legend'.format(mf.names[0])
     else:
@@ -624,7 +655,12 @@ def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None):
     
     if len(mf_lists) > 1:
         plt.legend(loc='best')
-    plt.show()
+    
+    fig.tight_layout()
+    if show == True:
+        plt.show()
+    else:
+        return fig
 
 
 def grid_mean(data, lons, lats, grid):
@@ -744,7 +780,7 @@ def period_bias_plot(mf_lists, xlim=None, ylim=None, show=True, **kw):
         return fig
 
 
-def plot_anet_site(aeronet, site, data_frames, aod_type='total'):
+def plot_anet_site(mf, site, data_frames=None, aod_type='total'):
     '''
     Plot the daily AOD data for a single AERONET site.
     
@@ -759,43 +795,35 @@ def plot_anet_site(aeronet, site, data_frames, aod_type='total'):
     aod_type : {'total' or 'dust'}, optional (Default: 'total')
         The type of AOD data to plot.
     '''
-    sites, i_uniq, i_inv = np.unique(aeronet.sites, return_index=True , return_inverse=True)
-    lat = aeronet.latitudes[i_uniq[sites==site]]
-    lon = aeronet.longitudes[i_uniq[sites==site]]
-    site_ll = np.array([lon, lat])
-    
-    # Get the AOD and times for the AERONET data at the chosen site
-    anet_times = aeronet.times[i_uniq[sites==site]]
-    if aod_type == 'total':
-        anet_aod = aeronet.aod[0][i_uniq[sites==site]]
-    elif aod_type == 'dust':
-        anet_aod = aeronet.aod[1][i_uniq[sites==site]]
-    
-    # Plot the AERONET data
-    plt.plot(anet_times, anet_aod, label='AERONET')
-    
-    for df in data_frames:
-        aod, times = aeroct.match_to_site(df, site_ll, aod_type, match_dist=25)
-        plt.plot(times, aod, label=df.name)
-    
-#     lons, i_uniq, i_inv = np.unique(aeronet.longitudes, return_index=True , return_inverse=True)
-#     lon = lons[site]
-#     lat = aeronet.latitudes[i_uniq[site]]
-#     times = aeronet.times[i_inv == site]
+#     sites, i_uniq, i_inv = np.unique(aeronet.sites, return_index=True , return_inverse=True)
+#     lat = aeronet.latitudes[i_uniq[sites==site]]
+#     lon = aeronet.longitudes[i_uniq[sites==site]]
+#     site_ll = np.array([lon, lat])
 #     
+#     # Get the AOD and times for the AERONET data at the chosen site
+#     anet_times = aeronet.times[i_uniq[sites==site]]
 #     if aod_type == 'total':
-#         aod_t = aeronet.data[0, i_inv == site]
+#         anet_aod = aeronet.aod[0][i_uniq[sites==site]]
 #     elif aod_type == 'dust':
-#         aod_d = aeronet.data[1, i_inv == site]
-#     elif aod_type == 'both':
-#         aod_t = aeronet.data[0, i_inv == site]
-#         aod_d = aeronet.data[1, i_inv == site]
+#         anet_aod = aeronet.aod[1][i_uniq[sites==site]]
 #     
-#     if aod_type in ('total', 'both'):
-#         plt.plot(times, aod_t, label='Total')
-#     if aod_type in ('dust', 'both'):
-#         plt.plot(times, aod_d, label='Dust')
-    plt.title('Daily {0} AOD From AERONET Site: {1}'.format(aeronet.name.title(), site))
+#     # Plot the AERONET data
+#     plt.plot(anet_times, anet_aod, label='AERONET')
+#     
+#     for df in data_frames:
+#         aod, times = aeroct.match_to_site(df, site_ll, aod_type, match_dist=25)
+#         plt.plot(times, aod, label=df.name)
+    
+    lons, i_uniq, i_inv = np.unique(mf.longitudes, return_index=True , return_inverse=True)
+    lon = lons[site]
+    lat = mf.latitudes[i_uniq[site]]
+    times = mf.times[i_inv == site]
+    aod1 = mf.data[0, i_inv == site]
+    aod2 = mf.data[1, i_inv == site]
+     
+    plt.plot(times, aod1, 'r.')
+    plt.plot(times, aod2, 'c.')
+    plt.title('Daily {0} AOD From AERONET Site: {1}'.format(mf.names[0].title(), site))
     if aod_type == 'both':
         plt.legend(loc='best')
     plt.show()
@@ -827,6 +855,9 @@ def plot_region_mask(bounds):
     ax.coastlines()
     ax.set_global()
     ax.gridlines(linestyle='--', linewidth=0.3, draw_labels=True)
+    
+    if not isinstance(bounds[0], list):
+        bounds = [bounds]
     
     for bound in bounds:
         width = bound[1] - bound[0]

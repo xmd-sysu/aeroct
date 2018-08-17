@@ -74,8 +74,7 @@ def download_data_day(date, forecast_time, out_path=None, dl_again=False):
     date : str
         Date to download forecast data in format "YYYYMMDD".
     forecast_time : int
-        The forecast lead time.
-        Possible choices: 0, 3, 6, 9, 12, 15, 18, 21, 24.
+        The forecast lead time. This must be a multiple of 3.
     out_path : str, optional (Default: /scratch/{USER}/aeroct/downloads/UM/pp/)
         The directory in which to save the output files.
     dl_again : bool, optional (Default: False)
@@ -129,7 +128,7 @@ def download_data_range(dates, forecast_time=0, dl_dir=None, dl_again=False):
     dates : str list or datetime list
         The dates to extract forecast data. Format: "YYYYMMDD" for strings.
     forecast_time : int, optional (Default: 0)
-        The forecast lead time. Possible choices: 0, 3, 6, 9, 12, 15, 18, 21, 24.
+        The forecast lead time. This must be a multiple of 3.
     dl_dir : str, optional (Default: /scratch/{USER}/aeroct/downloads/UM/pp/)
         The directory in which to save the output files.
     '''

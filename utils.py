@@ -196,6 +196,8 @@ def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_
         If the data should be downloaded and matched again even if files for it exist.
     dl_dir : str (Default: '/scratch/{USER}/aeroct/downloads/')
         The directory within which to save downloaded data.
+    match_again : bool (Default: False)
+        If the data should just be matched again even if files for it exist.
     subdir : bool (Default: True)
         If different datasets should be saved within subdirectories within 'save_dir'.
     '''
@@ -210,6 +212,7 @@ def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_
     aod_type = kwargs.setdefault('aod_type', 'total')
     dl_again = kwargs.setdefault('dl_again', False)
     dl_dir = kwargs.setdefault('dl_dir', SCRATCH_PATH+'downloads/')
+    match_again = kwargs.setdefault('match_again', False)
     subdir = kwargs.setdefault('subdir', True)
     
     if (data_set1 == 'metum') & (fc_time1 is None):
@@ -221,7 +224,7 @@ def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_
     data_set_names = []
     fc_times = [fc_time1, fc_time2]
     for i, data_set in enumerate([data_set1, data_set2]):
-        if fc_times[i] is not None:
+        if data_set == 'metum':
             fc_str = str(int(fc_times[i])).zfill(3)
         else:
             fc_str = ''
@@ -247,7 +250,8 @@ def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_
         # Load pickled MatchFrame if it already exists
         filename0 = '{0}-{1}-{2}-{3}.pkl'.format(data_set_names[1], data_set_names[0],
                                                  aod_s, date.strftime('%Y%m%d'))
-        if os.path.exists(save_dir + subdir_path + 'pkl/' + filename0) & (not dl_again):
+        if os.path.exists(save_dir + subdir_path + 'pkl/' + filename0) & (not dl_again)\
+             & (not match_again):
             mf_list.append(aeroct.load_from_pickle(filename0,
                                                    save_dir+subdir_path+'pkl/'))
         

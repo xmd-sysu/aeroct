@@ -42,12 +42,15 @@ def process_data(aod_array, date, satellite='Both', src=None):
         chosen_sat = aod_array['STLT_IDNY'] == 784
     else:
         chosen_sat = np.full_like(aod_array['STLT_IDNY'], True)
-    not_mask = (aod_array['AOD_NM550'] > -0.05001) & (aod_array['ARSL_SMAL_MODE_FRCN'] > 0)
+    not_mask = (aod_array['AOD_NM550'] > -0.05001)# & (aod_array['ARSL_SMAL_MODE_FRCN'] > 0)
     condition = np.logical_and(chosen_sat, not_mask)
     aod_array = aod_array[condition]
     
     aod_t = aod_array['AOD_NM550']   # Total AOD
-    aod_c = aod_t * (1 - aod_array['ARSL_SMAL_MODE_FRCN'])  # Coarse mode AOD
+    is_fmf = (aod_array['ARSL_SMAL_MODE_FRCN'] > 0)
+    aod_c = aod_t
+    aod_c[is_fmf] = aod_t[is_fmf] * (1 - aod_array['ARSL_SMAL_MODE_FRCN'][is_fmf])  # Coarse mode AOD
+    
     lat = aod_array['LTTD']
     lon = aod_array['LNGD']
     time = aod_array['TIME']       # Hours since 00:00:00

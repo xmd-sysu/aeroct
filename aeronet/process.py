@@ -73,7 +73,7 @@ def process_data(aeronet_df, date, wavelength=550):
     aod = interpolate_aod(aeronet_df, wavelength) # AOD data in form: [Total, Coarse-mode]
     lat = np.array(aeronet_df['Site_Latitude(Degrees)'])
     lon = np.array(aeronet_df['Site_Longitude(Degrees)'])
-    sites = aeronet_df['AERONET_Site']
+    sites = np.array(aeronet_df['AERONET_Site'])
     
     # Get hours since 00:00:00
     total_hours = lambda td: td.seconds / 3600 + td.days * 24
