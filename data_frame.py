@@ -100,10 +100,10 @@ class DataFrame():
     times : 1D NumPy array
         This contains the values of the time in hours from 00:00 on the given date,
         either at every data point or along an axis.
-    date : datetime
+    date : datetime, or datetime list
         The date for which the DataFrame instance contains data. Note that this is not
         the date of the beginning of the forecast if the DataFrame contains forecast
-        data.
+        data. If the data has been concatenated then this is a list of datetime objects with one per 
     wavelength : int
         The wavelength, in nm, for which the AOD data has been taken. (Usually 550 nm)
     forecast_time : float
@@ -601,7 +601,7 @@ class MatchFrame():
         Only possible if the MatchFrame has not been concatenated.
     pd_dataframe :
         Returns a Pandas dataframe containing the data for every data point. It does not
-        contain metadata such as the date and wavelength.
+        contain metadata such as the match_time/dist and wavelength.
     dump :
         Saves the MatchFrame in the chosen location either as a pickle file or a csv.
     extract :
@@ -733,7 +733,7 @@ class MatchFrame():
         if isinstance(self.date, datetime):
             return [self.date + timedelta(hours=h) for h in self.times]
         else:
-            raise Exception('The MatchFrame must not be concatenated to use this method.')
+            return [self.date[i] + timedelta(hours=h) for i, h in enumerate(self.times)]
     
     
     def pd_dataframe(self):
@@ -757,6 +757,10 @@ class MatchFrame():
         if self.sites is not None:
             headers.insert(1, 'AERONET site')
             data_array.insert(1, self.sites)
+        
+        if isinstance(self.date, list):
+            headers.insert(1, 'Dates')
+            data_array.insert(1, [date.strftime('%Y-%m-%d') for date in self.date])
         
         df = pd.DataFrame(np.array(data_array).T, columns=headers)
         return df
@@ -1079,9 +1083,9 @@ def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames/pkl/'):
 
 def concatenate_data_frames(df_list):
     '''
-    Concatenate a list of data frames over a period of time so that the average may be
-    plotted on a map. A data frame of the input type (DataFrame or MatchFrame) is
-    returned with a date attribute containing the list of dates.
+    Concatenate a list of data frames over a period of time. This allows, for example,
+    the average to be plotted on a map. A data frame of the input type (DataFrame or
+    MatchFrame) is returned with a date attribute containing the list of dates.
     
     Parameters
     ----------
@@ -1116,7 +1120,7 @@ def concatenate_data_frames(df_list):
                 raise ValueError('The list of data frames do not contain data with the same meta-data: \n{0}{1}'\
                                   .format(additional_data, df.additional_data))
             
-            dates.append(df.date)
+            dates.extend([df.date] * len(df.data[0]))
             data0.extend(df.data[0])
             data_std0.extend(df.data_std[0])
             data_num0.extend(df.data_num[0])
