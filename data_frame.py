@@ -180,6 +180,9 @@ class DataFrame():
     dust_filters : dict, optional (Default: None)
         A dictionary containing lists of indices for the AOD data which satisfies
         various dust filter conditions.
+    sites : NumPy array of str
+        The names of the AERONET sites for each of the data points if the data set is
+        AERONET.
     cube : Iris cube (Default: None)
         If the data is obtained from an Iris cube then it is supplied here.
     additional_data : list of str (Default: [])
@@ -386,86 +389,106 @@ class DataFrame():
         print('Data frame saved successfully to {0}'.format(filepath))
     
     
-    def extract(self, bounds=(-180, 180, -90, 90), time_bounds=(0, 24)):
+    def extract(self, bounds=(-180, 180, -90, 90), time_bounds=(0, 24), aeronet_site=None):
         '''
-        Return a new DataFrame only containing the data within the given bounds (inclusive).
+        Return a new DataFrame only containing the data for the given AERONET site or
+        within longitude-latitude bounds (inclusive) if no AERONET site is provided.
         
         Parameters
         ----------
         bounds : 4-tuple, or list of 4-tuples, optional (Default: (-180, 180, -90, 90))
-            This contains the If it is a list of 4-tuples then each corresponds to a
+            This contains the latitude and longitude bounds for which to extract data (if
+            aeronet_site is None). If it is a list of 4-tuples then each corresponds to a
             region for which the data shall be extracted. The 4-tuples contain the bounds
             as follows: (min lon, max lon, min lat, max lat)
-        time_bounds : 2-tuple of floats, optional (Default: (0, 24))
+        time_bounds : float 2-tuple, optional (Default: (0, 24))
             The bounds on the time (hours).
+        aeronet_site : str, optional (Default: None)
+            The name of the site for which to extract data. If this is provided then the
+            bounds are not used.
         '''
-        if isinstance(bounds[0], (int, long, float)):
-            in_lon = (self.longitudes >= bounds[0]) & (self.longitudes <= bounds[1])
-            in_lat = (self.latitudes >= bounds[2]) & (self.latitudes <= bounds[3])
-            in_bounds = np.array(in_lon & in_lat)
-        
-        else:
-            in_bounds = np.zeros_like(self.longitudes)
-            for bound in bounds:
-                in_lon = (self.longitudes >= bound[0]) & (self.longitudes <= bound[1])
-                in_lat = (self.latitudes >= bound[2]) & (self.latitudes <= bound[3])
-                in_bounds += (in_lon & in_lat)
-            in_bounds = np.array(in_bounds, dtype=bool)
-        
-        in_time = (self.times >= time_bounds[0]) & (self.times <= time_bounds[1])
-        in_bounds = np.array(in_bounds & in_time)
-        
-        if self.cube is not None:
-            lons = self.longitudes[in_lon]
-            lats = self.latitudes[in_lat]
-            times = self.times[in_time]
-            cube = self.cube[in_time, in_lat, in_lon]
+        # If an AERONET site is provided get the indices of the data at that site
+        if aeronet_site is not None:
+            if self.sites is None:
+                raise ValueError('DataFrame does not contain AERONET data.')
+            elif not (aeronet_site in self.sites):
+                raise ValueError('DataFrame contains no data for AERONET site: {0}'\
+                                 .format(aeronet_site))
             
-            if self.aod[0] is not None:
-                aod0 = self.aod[0][in_time, in_lat, in_lon]
-            else:
-                aod0 = None
-            if self.aod[1] is not None:
-                aod1 = self.aod[1][in_time, in_lat, in_lon]
-            else:
-                aod1 = None
-            
-            if self.dust_filters is not None:
-                dust_filters = self.dust_filters.copy()
-                for key in dust_filters.keys():
-                    dust_filters[key] = dust_filters[key][in_time, in_lat, in_lon]
-            else:
-                dust_filters = None
+            selected = (self.sites == aeronet_site)
+            sites = self.sites[selected]
+            ext_description = 'Extracted for AERONET site: {0}'.format(aeronet_site)
         
+        # Get the indices for the data within the bounds
         else:
-            lons = self.longitudes[in_bounds]
-            lats = self.latitudes[in_bounds]
-            times = self.times[in_bounds]
+            if isinstance(bounds[0], (int, long, float)):
+                in_lon = (self.longitudes >= bounds[0]) & (self.longitudes <= bounds[1])
+                in_lat = (self.latitudes >= bounds[2]) & (self.latitudes <= bounds[3])
+                in_bounds = np.array(in_lon & in_lat)
+            
+            else:
+                in_bounds = np.zeros_like(self.longitudes)
+                for bound in bounds:
+                    in_lon = (self.longitudes >= bound[0]) & (self.longitudes <= bound[1])
+                    in_lat = (self.latitudes >= bound[2]) & (self.latitudes <= bound[3])
+                    in_bounds += (in_lon & in_lat)
+                in_bounds = np.array(in_bounds, dtype=bool)
+            
+            in_time = (self.times >= time_bounds[0]) & (self.times <= time_bounds[1])
+            selected = (in_lon & in_lat & in_time)
+            
+            ext_description = 'Extracted for lon, lat: {0}, time: {1}'\
+                              .format(bounds, time_bounds)
+            
+            if self.cube is not None:
+                lons = self.longitudes[in_lon]
+                lats = self.latitudes[in_lat]
+                times = self.times[in_time]
+                cube = self.cube[in_time, in_lat, in_lon]
+                
+                if self.aod[0] is not None:
+                    aod0 = self.aod[0][in_time, in_lat, in_lon]
+                else:
+                    aod0 = None
+                if self.aod[1] is not None:
+                    aod1 = self.aod[1][in_time, in_lat, in_lon]
+                else:
+                    aod1 = None
+                
+                if self.dust_filters is not None:
+                    dust_filters = self.dust_filters.copy()
+                    for key in dust_filters.keys():
+                        dust_filters[key] = dust_filters[key][in_time, in_lat, in_lon]
+                else:
+                    dust_filters = None
+        
+        # Get the data within the bounds / AERONET site
+        if self.cube is None:
+            lons = self.longitudes[selected]
+            lats = self.latitudes[selected]
+            times = self.times[selected]
             cube = None
             
             if self.aod[0] is not None:
-                aod0 = self.aod[0][in_bounds]
+                aod0 = self.aod[0][selected]
             else:
                 aod0 = None
             if self.aod[1] is not None:
-                aod1 = self.aod[1][in_bounds]
+                aod1 = self.aod[1][selected]
             else:
                 aod1 = None
             
-            sites = self.sites[in_bounds] if (self.sites is not None) else None
+            sites = self.sites[selected] if (self.sites is not None) else None
             
             if self.dust_filters is not None:
                 dust_filters = self.dust_filters.copy()
                 for key in dust_filters.keys():
-                    dust_filters[key] = dust_filters[key][in_bounds]
+                    dust_filters[key] = dust_filters[key][selected]
             else:
                 dust_filters = None
         
-        ext_description = 'Extraction for lon, lat: {0}, time: {1}'\
-                          .format(bounds, time_bounds)
         if hasattr(self, 'additional_data'):
-            additional_data = list(self.additional_data)
-            additional_data.append(ext_description)
+            additional_data = self.additional_data.append(ext_description)
         else:
             additional_data = [ext_description]
         
@@ -826,58 +849,81 @@ class MatchFrame():
         return filepath
     
     
-    def extract(self, bounds=(-180, 180, -90, 90), time_bounds=(0, 24)):
+    def extract(self, bounds=(-180, 180, -90, 90), time_bounds=(0, 24), aeronet_site=None):
         '''
-        Return a new MatchFrame only containing the data within the given bounds
-        (inclusive).
+        Return a new MatchFrame only containing the data for the given AERONET site or
+        within longitude-latitude bounds (inclusive) if no AERONET site is provided.
         
         Parameters
         ----------
         bounds : 4-tuple, or list of 4-tuples, optional (Default: (-180, 180, -90, 90))
-            This contains the If it is a list of 4-tuples then each corresponds to a
+            This contains the latitude and longitude bounds for which to extract data (if
+            aeronet_site is None). If it is a list of 4-tuples then each corresponds to a
             region for which the data shall be extracted. The 4-tuples contain the bounds
             as follows: (min lon, max lon, min lat, max lat)
         time_bounds : float 2-tuple, optional (Default: (0, 24))
             The bounds on the time (hours).
+        aeronet_site : str, optional (Default: None)
+            The name of the site for which to extract data. If this is provided then the
+            bounds are not used.
         '''
-        if isinstance(bounds[0], (int, long, float)):
-            in_lon = (self.longitudes >= bounds[0]) & (self.longitudes <= bounds[1])
-            in_lat = (self.latitudes >= bounds[2]) & (self.latitudes <= bounds[3])
-            in_bounds = np.array(in_lon & in_lat)
+        # If an AERONET site is provided get the indices of the data at that site
+        if aeronet_site is not None:
+            if self.sites is None:
+                raise ValueError('MatchFrame does not contain AERONET sites.')
+            elif not (aeronet_site in self.sites):
+                raise ValueError('MacthFrame contains no data for AERONET site: {0}'\
+                                 .format(aeronet_site))
+            
+            selected = (self.sites == aeronet_site)
+            sites = self.sites[selected]
+            ext_description = 'Extracted for AERONET site: {0}'.format(aeronet_site)
         
+        # Get the indices for the data within the bounds
         else:
-            in_bounds = np.zeros_like(self.longitudes)
-            for bound in bounds:
-                in_lon = (self.longitudes >= bound[0]) & (self.longitudes <= bound[1])
-                in_lat = (self.latitudes >= bound[2]) & (self.latitudes <= bound[3])
-                in_bounds += (in_lon & in_lat)
-            in_bounds = np.array(in_bounds, dtype=bool)
+            if isinstance(bounds[0], (int, long, float)):
+                in_lon = (self.longitudes >= bounds[0]) & (self.longitudes <= bounds[1])
+                in_lat = (self.latitudes >= bounds[2]) & (self.latitudes <= bounds[3])
+                in_bounds = np.array(in_lon & in_lat)
+                
+            else:
+                in_bounds = np.zeros_like(self.longitudes)
+                for bound in bounds:
+                    in_lon = (self.longitudes >= bound[0]) & (self.longitudes <= bound[1])
+                    in_lat = (self.latitudes >= bound[2]) & (self.latitudes <= bound[3])
+                    in_bounds += (in_lon & in_lat)
+                in_bounds = np.array(in_bounds, dtype=bool)
+            
+            in_time = (self.times >= time_bounds[0]) & (self.times <= time_bounds[1])
+            selected = np.array(in_bounds & in_time)
+            
+            sites = None
+            ext_description = 'Extracted for lon, lat: {0}, time: {1}'\
+                              .format(bounds, time_bounds)
+            
+            # Obtain the data within the bounds if the data is gridded
+            if self.cube is not None:
+                lons = self.longitudes[in_lon]
+                lats = self.latitudes[in_lat]
+                times = self.times[in_time]
+                data = self.data[:, in_time, in_lat, in_lon]
+                data_std = self.data_std[:, in_time, in_lat, in_lon]
+                data_num = self.dat_num[:, in_time, in_lat, in_lon]
+                time_diff = self.time_diff[in_time, in_lat, in_lon]
+                cube = self.cube[in_time, in_lat, in_lon]
         
-        in_time = (self.times >= time_bounds[0]) & (self.times <= time_bounds[1])
-        in_bounds = np.array(in_bounds & in_time)
-        
-        if self.cube is not None:
-            lons = self.longitudes[in_lon]
-            lats = self.latitudes[in_lat]
-            times = self.times[in_time]
-            data = self.data[:, in_time, in_lat, in_lon]
-            data_std = self.data_std[:, in_time, in_lat, in_lon]
-            data_num = self.dat_num[:, in_time, in_lat, in_lon]
-            time_diff = self.time_diff[in_time, in_lat, in_lon]
-            cube = self.cube[in_time, in_lat, in_lon]
-        
-        else:
-            lons = self.longitudes[in_bounds]
-            lats = self.latitudes[in_bounds]
-            times = self.times[in_bounds]
-            data = self.data[:, in_bounds]
-            data_std = self.data_std[:, in_bounds]
-            data_num = self.data_num[:, in_bounds]
-            time_diff = self.time_diff[in_bounds]
+        # Get the data within the AERONET site / bounds
+        if self.cube is None:
+            lons = self.longitudes[selected]
+            lats = self.latitudes[selected]
+            times = self.times[selected]
+            data = self.data[:, selected]
+            data_std = self.data_std[:, selected]
+            data_num = self.data_num[:, selected]
+            time_diff = self.time_diff[selected]
             cube = None
         
-        ext_description = 'Extraction for lon, lat: {0}, time: {1}'\
-                          .format(bounds, time_bounds)
+        
         if hasattr(self, 'additional_data'):
             additional_data = list(self.additional_data)
             additional_data.append(ext_description)
@@ -887,7 +933,7 @@ class MatchFrame():
         return MatchFrame(data, data_std, data_num, time_diff, lons, lats, times,
                           self.date, self.match_time, self.match_dist, self.wavelength,
                           self.forecast_times, self.data_sets, self.aod_type, cube=cube,
-                          additional_data=additional_data)
+                          sites=sites, additional_data=additional_data)
 
 
 
@@ -1048,7 +1094,7 @@ def concatenate_data_frames(df_list):
         dates = []
         data0, data_std0, data_num0 = [], [], []
         data1, data_std1, data_num1 = [], [], []
-        longitudes, latitudes, times = [], [], []
+        longitudes, latitudes, times, aeronet_sites = [], [], [], []
         time_diff = []
         
         for df in df_list:
@@ -1073,6 +1119,8 @@ def concatenate_data_frames(df_list):
             longitudes.extend(df.longitudes)
             latitudes.extend(df.latitudes)
             times.extend(df.times)
+            if df.sites is not None: aeronet_sites.extend(df.sites)
+            
         
         data = np.array([data0, data1])
         data_std = np.array([data_std0, data_std1])
@@ -1080,10 +1128,11 @@ def concatenate_data_frames(df_list):
         time_diff = np.array(time_diff)
         longitudes, latitudes = np.array(longitudes), np.array(latitudes)
         times = np.array(times)
+        aeronet_sites = None if (df.sites is None) else np.array(aeronet_sites)
         
         return MatchFrame(data, data_std, data_num, time_diff, longitudes, latitudes, times,
-                          dates, match_time, match_rad, wavelength, fc_times,
-                          data_sets, aod_type, additional_data=additional_data)
+                          dates, match_time, match_rad, wavelength, fc_times, data_sets,
+                          aod_type, sites=aeronet_sites, additional_data=additional_data)
     
     if isinstance(df_list[0], DataFrame):
         
@@ -1091,7 +1140,8 @@ def concatenate_data_frames(df_list):
         fc_time = df_list[0].forecast_time
         data_set = df_list[0].data_set
         
-        dates, aod0, aod1, longitudes, latitudes, times = [], [], [], [], [], []
+        dates, aod0, aod1 = [], [], []
+        longitudes, latitudes, times, aeronet_sites = [], [], [], []
         
         for df in df_list:
             
@@ -1111,12 +1161,14 @@ def concatenate_data_frames(df_list):
             longitudes.extend(df.longitudes)
             latitudes.extend(df.latitudes)
             times.extend(df.times)
+            if df.sites is not None: aeronet_sites.extend(df.sites)
         
         if aod0 is not None: aod0 = np.array(aod0)
         if aod1 is not None: aod1 = np.array(aod1)
         aod = [aod0, aod1]
         longitudes, latitudes = np.array(longitudes), np.array(latitudes)
         times = np.array(times)
+        sites = None if (df.sites is None) else np.array(aeronet_sites)
         
         if isinstance(df_list[0].dust_filters, dict):
             dust_filters = pd.concat([pd.DataFrame.from_dict(df.dust_filters) for df in df_list])
@@ -1124,4 +1176,4 @@ def concatenate_data_frames(df_list):
             dust_filters = None
         
         return DataFrame(aod, longitudes, latitudes, times, dates, wavelength, data_set,
-                         forecast_time=fc_time, dust_filters=dust_filters)
+                         forecast_time=fc_time, dust_filters=dust_filters, sites=sites)

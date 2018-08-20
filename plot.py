@@ -338,16 +338,20 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
         return fig
 
 
-def scatterplot(mf, stats=True, scale='log', xlim=(None, None), ylim=(None, None),
-                show=True, error=True, hm_threshold=400, grid_cells=None, **kwargs):
+def scatterplot(mf, aeronet_site=None, stats=True, scale='log', xlim=(None, None),
+                ylim=(None, None), show=True, error=True, hm_threshold=400,
+                grid_cells=None, **kwargs):
     '''
     This is used to plot AOD data from two sources which have been matched-up on a
-    scatter plot. The function returns the figure if show=True.
+    scatter plot. The data for a single AERONET site may be shown if one of the matched
+    data-sets is AERONET. The function returns the figure if show=True.
     
     Parameters
     ----------
     mf : AeroCT MatchFrame or list of MatchFrames
         The data frame(s) containing collocated data.
+    aeronet_site : str, optional (Default: None)
+        The name of the AERONET site for which to show data If a single site is desired.
     stats : bool, optional (Default: True)
         Choose whether to show statistics on the plot.
     scale : {'log', 'linear', 'bins'}, optional (Default: 'log')
@@ -380,6 +384,10 @@ def scatterplot(mf, stats=True, scale='log', xlim=(None, None), ylim=(None, None
     if (mf.__class__.__name__ != 'MatchFrame') | (len(mf.data_sets) != 2):
         raise ValueError('The data frame is unrecognised. It must be collocated data \
                          from two data sets.')
+    
+    # Select the data from the given AERONET site
+    if aeronet_site is not None:
+        mf = mf.extract(aeronet_site=aeronet_site)
     
     # Plot a heat map if there are more data points than hm_threshold
     heatmap = (mf.data[0].size > hm_threshold)
@@ -484,16 +492,20 @@ def scatterplot(mf, stats=True, scale='log', xlim=(None, None), ylim=(None, None
         aod_src = {'metum' : '', 'modis': '', 'modis_t' : '', 'modis_a' : '', 'aeronet': ''}
     
     # Title, axes, and legend
-    if np.any([mf.additional_data[i][:10]=='Extraction'
-               for i in range(len(mf.additional_data))]):
+    if aeronet_site is not None:
+        rgn_str = aeronet_site
+    elif np.any([mf.additional_data[i][:9]=='Extracted'
+                 for i in range(len(mf.additional_data))]):
         rgn_str = 'Regional'
     else:
         rgn_str = 'Global'
+    
     if mf.aod_type in ('total', 0):
         aod_str = 'Total AOD'
     elif mf.aod_type in ('dust', 1):
         aod_str = 'Dust AOD'
-    title = 'Collocated {0} {1} Comparison For {2}'.format(rgn_str, aod_str, date_str)
+    
+    title = 'Collocated {1} Comparison \nFor {2} ({0})'.format(rgn_str, aod_str, date_str)
     
     fig.text(0.5, (y1 + height + height2 + 0.03), title, ha='center', fontsize=14)
     ax.legend(loc=4)
