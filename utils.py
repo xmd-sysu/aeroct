@@ -269,7 +269,7 @@ def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_
     return mf_list
 
 
-def average_each_n_values(array, n):
+def running_average(array, n):
     array = np.array(array)
     padded_array = np.pad(array.astype(float), (0, (n - array.size%n)%n),
                           mode='constant', constant_values=np.NaN)

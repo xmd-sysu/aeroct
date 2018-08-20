@@ -244,11 +244,11 @@ class DataFrame():
         return [self.date + timedelta(hours=h) for h in self.times]
     
     
-    def get_data(self, aod_type=None, dust_filter_fields=None):
+    def get_data(self, aod_type=None, dust_filter_fields=None, return_type=False):
         '''
         Get an array with either all the total AOD data or the dust AOD data. This is
         returned along with the corresponding longitudes, latitudes, and times.
-        Return: aod, lon, lat, times.
+        Return: aod, lon, lat, times(, data type).
         
         Parameters
         ----------
@@ -278,6 +278,8 @@ class DataFrame():
             MetDB. If downloaded from NASA the following is used:
             [['AE_LAND', 'SSA_LAND'], ['FM_FRC_OCEAN', 'AE_OCEAN', 'EFF_RAD_OCEAN',
                                        'MASS_CONC', 'REGION_OCEAN']]
+        return_type : bool, optional (Default: False)
+            If True, return the AOD type as well, ie. 'dust' or 'total'.
         '''
         get_total = (aod_type=='total') | ((aod_type is None) &
                                            (self.aod[0] is not None))
@@ -351,7 +353,13 @@ class DataFrame():
                 lat = grid[1].ravel()
                 times = grid[0].ravel()
         
-        return aod, lon, lat, times
+        if return_type == False:
+            return aod, lon, lat, times
+        else:
+            if get_total:
+                return aod, lon, lat, times, 'total'
+            else:
+                return aod, lon, lat, times, 'dust'
     
     
     def dump(self, filename=None, save_dir=SCRATCH_PATH+'data_frames/'):

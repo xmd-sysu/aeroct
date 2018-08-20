@@ -109,11 +109,13 @@ def shiftedColorMap(cmap, data, vmin=None, vmax=None, midpoint=0, name='shiftedc
 def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolormesh',
              show=True, grid_size=0.5, vmin=None, vmax=None):
     '''
-    For DataFrames this function will plot the daily average of the AOD at individual
-    sites for AERONET data, otherwise on a grid.
-    For MatchFrames this the difference in AOD is plotted (data_set[1] - data_set[0]).
-    This will be displayed as individual sites if AERONET data is included, otherwise on
-    a grid.
+    For a (list of) DataFrame(s) this function will plot the average of the total or dust
+    AOD onto a map.
+    For a (list of) MatchFrame(s) several different values can be plotted on a map. These
+    are the average difference in AOD or time (data_set[1] - data_set[0]), the local RMS
+    values, or the number of matched-up data points.
+    If AERONET data is included then the individual sites will be plotted, otherwise it
+    will be plotted on a grid.
     
     Parameters
     ----------
@@ -121,10 +123,14 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
     data_type : str, optional (Default: 'AOD')
         This describes which type of data to plot.
         If df is a DataFrame(s) then it describes the type of AOD data to plot. It can
-        take the values 'AOD', 'dust AOD', or 'total AOD'. If 'AOD' is chosen then the
-        total AOD will be plotted, unless the data frame has only dust AOD in which case
-        that will be plotted.
-        If df is a MatchFrame(s) then it can take the 
+        take any one of the values 'AOD', 'dust AOD', or 'total AOD'. If 'AOD' is chosen
+        then the total AOD will be plotted, unless the data frame has only dust AOD in
+        which case that will be plotted.
+        If df is a MatchFrame(s) then it can take the any of the values:
+        'AOD' - Plot the mean AOD bias between the two data sets for each location.
+        'RMS' - Plot the local RMS values.
+        'time diff' - Plot the average time difference between the two data sets.
+        'heatmap' - Plot the number of matched-up data points within each location.
     lat : tuple, optional (Default: (-90, 90))
         A tuple of the latitude bounds of the plot in degrees.
     lon : tuple, optional (Default: (-180, 180))
@@ -132,7 +138,8 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
     plot_type : str, optional (Default: 'pcolormesh')
         The type of plot to produce if it does not contain AERONET data. 'scatter' to
         plot a scatter grid of all AOD data, and 'pcolormesh' or 'contourf' for griddded
-        plots.
+        plots. The grid cell values for gridded plots are found by using a cubic
+        interpolation scheme with scipy.interpolate.griddata().
     show : bool, optional (Default: True)
         If True the figure is shown, otherwise it is returned 
     grid_size : float, optional (Default: 0.5)
@@ -161,15 +168,15 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
     div_cmap = cm.get_cmap('RdYlBu_r')
     
     # USE IRIS PLOT IF THERE IS A CUBE IN THE DATA FRAME
-    if type(df.cube) != type(None):
+    if df.cube is not None:
         
         day_avg_cube = df.cube.collapsed('time', analysis.MEAN)
         
         if df.__class__.__name__ == 'DataFrame':
-            plt.title('{0}: AOD mean for {1}'.format(df.name, date))
+            plt.title('{0}: Dust AOD Mean For {1}'.format(df.name, date))
             cmap = mon_cmap
         else:
-            plt.title('AOD difference (mean) : {0} - {1} for {2}'\
+            plt.title('Dust AOD Difference (Mean) ({0} - {1}) for {2}'\
                       .format(df.names[1], df.names[0], date))
             cmap = shiftedColorMap(div_cmap, day_avg_cube.data, vmin, vmax)
         
@@ -179,16 +186,19 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
             iplt.contourf(day_avg_cube, cmap=cmap, vmin=vmin, vmax=vmax)
     
     elif df.__class__.__name__ == 'DataFrame':
-        plt.title('{0}: AOD Mean For {1}'.format(df.name, date))
-        cmap = mon_cmap
-        
         # Select the total or dust AOD data which is in the given bounds
         if data_type == 'AOD':
             aod, lons, lats = df.get_data(None)[:3]
-        if data_type in ['total', 'total AOD']:
+            aod_type = df.get_data(None)[-1]
+        elif data_type in ['total', 'total AOD']:
             aod, lons, lats = df.get_data('total')[:3]
-        if data_type in ['dust', 'dust AOD']:
+            aod_type = 'total'
+        elif data_type in ['dust', 'dust AOD']:
             aod, lons, lats = df.get_data('dust')[:3]
+            aod_type = 'dust'
+        
+        plt.title('{0}: {1} AOD Mean For {2}'.format(df.name, aod_type.title(), date))
+        cmap = mon_cmap
         
         in_bounds = (lon[0] < lons) & (lons < lon[1]) & (lat[0] < lats) & (lats < lat[1])
         aod = aod[in_bounds]
@@ -248,22 +258,22 @@ def plot_map(df, data_type='AOD', lat=(-90,90), lon=(-180,180), plot_type='pcolo
         # Get the data for which to find the area average and the title
         if data_type == 'time diff':
             data = df.time_diff[in_bounds]
-            plt.title('Time Difference (mean) ({0} - {1}) for {2}'\
+            plt.title('Mean Time Difference ({0} - {1})\n for {2}'\
                       .format(df.names[1], df.names[0], date))
         
         elif data_type == 'RMS':
             data = (df.data[1, in_bounds] - df.data[0, in_bounds])**2
-            plt.title('Root Mean Square ({0}, {1}) for {2}'\
+            plt.title('Root Mean Square ({0}, {1})\n for {2}'\
                       .format(df.names[0], df.names[1], date))
         
         elif data_type == 'heatmap':
             data = np.ones_like(df.data[1, in_bounds])
-            plt.title('Number Of Matched Data Points ({0}, {1}) for {2}'\
+            plt.title('Number Of Matched Data Points ({0}, {1})\n for {2}'\
                       .format(df.names[0], df.names[1], date))
         
         else:
             data = df.data[1, in_bounds] - df.data[0, in_bounds]
-            plt.title('AOD Difference (mean) ({0} - {1}) for {2}'\
+            plt.title('Mean AOD Difference ({0} - {1})\n for {2}'\
                       .format(df.names[1], df.names[0], date))
         
         # If AERONET is included plot the sites on a map
@@ -633,10 +643,10 @@ def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None, sh
         # Average over a number of days
         date_list_reduced = date_list[int((average_days - 1)/2)::average_days]
         if average_days > 2: date_list_reduced.append(date_list[-1])
-        stat_mean, stat_err = aeroct.average_each_n_values(stat_values, average_days)
+        stat_mean, stat_err = aeroct.running_average(stat_values, average_days)
         
         if stat == 'Bias':
-            stat_err = aeroct.average_each_n_values(stat_errors, average_days)[0]
+            stat_err = aeroct.running_average(stat_errors, average_days)[0]
         
         # Plot
         if (len(mf_lists) == 1):
