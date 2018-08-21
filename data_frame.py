@@ -867,6 +867,9 @@ class MatchFrame():
                                   ('Regression intercept : {0:.04f}'.format(self.r_intercept)),
                                   ('Regression slope : {0:.04f}'.format(self.r_slope)),
                                   ('Pearson R : {0:.04f}'.format(self.r)),
+                                  ('Log reg intercept : {0:.04f}'.format(self.log_r_intercept)),
+                                  ('Log reg slope : {0:.04f}'.format(self.log_r_slope)),
+                                  ('Log Pearson R : {0:.04f}'.format(self.log_r)),
                                   ('')])
             
             with open(filepath, 'w') as fout:
