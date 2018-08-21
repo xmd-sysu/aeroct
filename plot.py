@@ -470,7 +470,7 @@ def scatterplot(mf, aeronet_site=None, stats=True, scale='log', xlim=(None, None
         heatmap_grid = np.histogram2d(mf.data[0], mf.data[1], [x_grid, y_grid])[0]
         heatmap_grid = np.ma.masked_where(heatmap_grid==0, heatmap_grid)
         
-        im = ax.pcolormesh(x_grid, y_grid, heatmap_grid.T, cmap='CMRmap_r')
+        im = ax.pcolormesh(x_grid, y_grid, heatmap_grid.T, cmap='CMRmap_r', vmin=0)
         plt.colorbar(im, cax=cax, orientation='horizontal')
     
     # Assign automatic limits now so that they do not fit to the lines
@@ -491,7 +491,7 @@ def scatterplot(mf, aeronet_site=None, stats=True, scale='log', xlim=(None, None
 #     ax.plot(x, y_log, 'b-', lw=2, label='Logarithmic regression') # Regression line
     ax.plot(x, x, c='gray', ls='--', lw=2, label='y = x') # y = x line
     
-    # AOD source for dust
+    # How the dust AOD is obtained
     if mf.aod_type == 'dust':
         aod_src = {'metum' : '',
                    'modis' : '(Filtered coarse AOD)',

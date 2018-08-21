@@ -161,7 +161,7 @@ def download_range(data_set, date_list, dl_dir=SCRATCH_PATH+'downloads/',
                 pickle.dump(dl_data, w, -1)
 
 
-def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_PATH+'match_frames/',
+def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_PATH+'match_frames/', verbose=False,
                    **kwargs):
     '''
     This will return a list of MatchFrames for matched data-sets for a corresponding
@@ -251,7 +251,8 @@ def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_
     # Build the list of MatchFrames
     mf_list = []
     for date in date_list:
-        print('\nDate: {0}'.format(date.date()))
+        if verbose:
+            print('\nDate: {0}'.format(date.date()))
         
         # Load pickled MatchFrame if it already exists
         filename0 = '{0}-{1}-{2}-{3}.pkl'.format(data_set_names[1], data_set_names[0],
@@ -259,7 +260,7 @@ def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_
         if os.path.exists(save_dir + subdir_path + 'pkl/' + filename0) & (not dl_again)\
              & (not match_again):
             mf_list.append(aeroct.load_from_pickle(filename0,
-                                                   save_dir+subdir_path+'pkl/'))
+                                                   save_dir+subdir_path+'pkl/', verbose=verbose))
         
         # Otherwise load and match-up data
         else:

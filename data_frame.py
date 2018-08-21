@@ -1083,7 +1083,7 @@ def load(data_set, date, dl_dir=SCRATCH_PATH+'downloads/', forecast_time=0, src=
         raise ValueError('Invalid data set: {0}'.format(data_set))
 
 
-def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames/pkl/'):
+def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames/pkl/', verbose=True):
     '''
     Load the data frame from a file in the chosen location. Note that saving and
     loading large DataFrames can take some time.
@@ -1100,7 +1100,8 @@ def load_from_pickle(filename, dir_path=SCRATCH_PATH+'match_frames/pkl/'):
     if not os.path.exists(dir_path + filename):
         raise ValueError('File does not exist: {0}'.format(dir_path + filename))
     
-    print('Loading data frame(s) from {0}.'.format(dir_path + filename))
+    if verbose:
+        print('Loading data frame(s) from {0}.'.format(dir_path + filename))
     with open(dir_path + filename, 'r') as reader:
         data_frame = pickle.load(reader)
     return data_frame
