@@ -369,7 +369,7 @@ class DataFrame():
         
         Parameters
         ----------
-        filename : str, optional (Default: '{data_set}_YYYYMMDD')
+        filename : str, optional (Default: '{data_set}-YYYYMMDD.pkl')
             What to name the saved file.
         save_dir : str, optional (Default: '/scratch/{USER}/aeroct/data_frames/')
             The path to the directory where the file will be saved.
@@ -382,9 +382,9 @@ class DataFrame():
             pass
         elif type(self.data_set) == str:
             if self.forecast_time is None:
-                filename = '{0}_{1}'.format(self.data_set, self.date.strftime('%Y%m%d'))
+                filename = '{0}-{1}'.format(self.data_set, self.date.strftime('%Y%m%d'))
             else:
-                filename = '{0}{1}_{2}'.format(self.data_set, self.forecast_time,
+                filename = '{0}{1}-{2}'.format(self.data_set, self.forecast_time,
                                                self.date.strftime('%Y%m%d'))
         else:
             raise ValueError('data_set attribute invalid. Cannot create filename')
@@ -448,6 +448,7 @@ class DataFrame():
             ext_description = 'Extracted for lon, lat: {0}, time: {1}'\
                               .format(bounds, time_bounds)
             
+            # Select the data if it is 3D
             if self.cube is not None:
                 lons = self.longitudes[in_lon]
                 lats = self.latitudes[in_lat]
@@ -469,6 +470,9 @@ class DataFrame():
                         dust_filters[key] = dust_filters[key][in_time, in_lat, in_lon]
                 else:
                     dust_filters = None
+                
+                if isinstance(self.date, list):
+                    date = list(np.array(self.date)[in_time])
         
         # Get the data within the bounds / AERONET site
         if self.cube is None:
@@ -494,13 +498,19 @@ class DataFrame():
                     dust_filters[key] = dust_filters[key][selected]
             else:
                 dust_filters = None
+            
+            if isinstance(self.date, list):
+                date = list(np.array(self.date)[selected])
+        
+        if not isinstance(self.date, list):
+            date = self.date
         
         if hasattr(self, 'additional_data'):
             additional_data = self.additional_data.append(ext_description)
         else:
             additional_data = [ext_description]
         
-        return DataFrame([aod0, aod1], lons, lats, times, self.date, self.wavelength,
+        return DataFrame([aod0, aod1], lons, lats, times, date, self.wavelength,
                          self.data_set, forecast_time=self.forecast_time, sites=sites,
                          dust_filters=dust_filters, cube=cube,
                          additional_data=additional_data)
@@ -759,15 +769,16 @@ class MatchFrame():
             data_array.insert(1, self.sites)
         
         if isinstance(self.date, list):
-            headers.insert(1, 'Dates')
-            data_array.insert(1, [date.strftime('%Y-%m-%d') for date in self.date])
+            headers.insert(0, 'Dates')
+            date_strs = np.array([date.strftime('%Y-%m-%d') for date in self.date])
+            data_array.insert(0, date_strs)
         
         df = pd.DataFrame(np.array(data_array).T, columns=headers)
         return df
     
     
     def dump(self, filename=None, save_dir=SCRATCH_PATH+'match_frames/',
-             filetype='pickle', subdir=True, verb=True):
+             filetype='csv', subdir=True, verb=True):
         '''
         Save the data frame as a file in the chosen location if the file already exists
         it will be overwritten. The filepath is returned. Note that only pickle files can
@@ -776,11 +787,11 @@ class MatchFrame():
         
         Parameters
         ----------
-        filename : str, optional (Default: '{dataset2}-{dataset1}-{aod-type}-YYYYMMDD')
+        filename : str, optional (Default: '{dataset2}-{dataset1}-{aod-type}-YYYYMMDD.{ext}')
             What to name the saved file.
         save_dir : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
             The path to the directory where the file will be saved.
-        filetype : {'pickle', 'csv'}, optional (Default: 'pickle')
+        filetype : {'pickle', 'csv'}, optional (Default: 'csv')
             The type of file to save. This will add a file extension.
         subdir : bool, optional (Default: True)
             Whether to save the MatchFrames within sub-directories.
@@ -815,8 +826,13 @@ class MatchFrame():
         
         # Create the filename
         if filename is None:
+            if isinstance(self.date, datetime):
+                filename_date = self.date.strftime('%Y%m%d')
+            else:
+                filename_date = '{0}-{1}'.format(min(self.date).strftime('%Y%m%d'),
+                                                 max(self.date).strftime('%Y%m%d'))
             filename = '{0}-{1}-{2}-{3}'.format(data_set_names[1], data_set_names[0],
-                                        self.aod_type[0], self.date.strftime('%Y%m%d'))
+                                                self.aod_type[0], filename_date)
         
         filepath = save_dir + filename + file_ext
         os.system('touch {0}'.format(filepath))
@@ -829,8 +845,8 @@ class MatchFrame():
         # Write csv file
         elif filetype == 'csv':
             if isinstance(self.date, list):
-                first_date = self.date[0].strftime('%Y-%m-%d')
-                last_date = self.date[-1].strftime('%Y-%m-%d')
+                first_date = min(self.date).strftime('%Y-%m-%d')
+                last_date = max(self.date).strftime('%Y-%m-%d')
                 date_str = '{0} to {1}'.format(first_date, last_date)
             else:
                 date_str = self.date.strftime('%Y-%m-%d')
@@ -923,6 +939,8 @@ class MatchFrame():
                 data_num = self.dat_num[:, in_time, in_lat, in_lon]
                 time_diff = self.time_diff[in_time, in_lat, in_lon]
                 cube = self.cube[in_time, in_lat, in_lon]
+                if isinstance(self.date, list):
+                    date = list(np.array(self.date)[in_time])
         
         # Get the data within the AERONET site / bounds
         if self.cube is None:
@@ -934,7 +952,11 @@ class MatchFrame():
             data_num = self.data_num[:, selected]
             time_diff = self.time_diff[selected]
             cube = None
+            if isinstance(self.date, list):
+                date = list(np.array(self.date)[selected])
         
+        if not isinstance(self.date, list):
+            date = self.date
         
         if hasattr(self, 'additional_data'):
             additional_data = list(self.additional_data)
@@ -943,7 +965,7 @@ class MatchFrame():
             additional_data = [ext_description]
         
         return MatchFrame(data, data_std, data_num, time_diff, lons, lats, times,
-                          self.date, self.match_time, self.match_dist, self.wavelength,
+                          date, self.match_time, self.match_dist, self.wavelength,
                           self.forecast_times, self.data_sets, self.aod_type, cube=cube,
                           sites=sites, additional_data=additional_data)
 

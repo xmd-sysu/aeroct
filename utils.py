@@ -177,10 +177,12 @@ def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_
         This provides the dates over which data should be downloaded and matched. The
         aeroct.datetime_list() function can be used to provide these.
     save : bool, optional (Default: True)
-        If True then each MatchFrame will be saved as a pickled object using the dump()
-        method.
+        If True then the list of MatchFrames will be concatenated and saved to a single
+        csv file using the MatchFrame dump() method. 
     save_dir : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
-        The directory within which to save the match_frames.
+        The directory within which to save the csv file and pickle files of the
+        match_frames. By default they will be saved within sub-directories in this
+        location.
     kwargs:
     forecast_time1 = int (Default: True)
         The forecast time if the chosen data-set1 is a model. (Only multiples of 3)
@@ -200,6 +202,9 @@ def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_
         If the data should just be matched again even if files for it exist.
     subdir : bool (Default: True)
         If different datasets should be saved within subdirectories within 'save_dir'.
+    save_pkl : bool (Default: True)
+        Choose whether to save the individual MatchFrames as pickle files using the 
+        dump() method.
     '''
     
     if save_dir[-1] != '/': save_dir += '/'
@@ -214,6 +219,7 @@ def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_
     dl_dir = kwargs.setdefault('dl_dir', SCRATCH_PATH+'downloads/')
     match_again = kwargs.setdefault('match_again', False)
     subdir = kwargs.setdefault('subdir', True)
+    save_pkl = kwargs.setdefault('save_pkl', True)
     
     if (data_set1 == 'metum') & (fc_time1 is None):
         raise ValueError('Data set 1 requires a forecast time, none given.')
@@ -255,6 +261,7 @@ def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_
             mf_list.append(aeroct.load_from_pickle(filename0,
                                                    save_dir+subdir_path+'pkl/'))
         
+        # Otherwise load and match-up data
         else:
             df1 = aeroct.load(data_set1, date, forecast_time=fc_time1, dl_dir=dl_dir,
                               dl_again=dl_again, verb=False)
@@ -263,8 +270,14 @@ def get_match_list(data_set1, data_set2, date_list, save=True, save_dir=SCRATCH_
                               dl_again=dl_again, verb=False)
             
             mf = aeroct.collocate(df1, df2, match_time, match_rad, aod_type=aod_type,
-                                  save=save, save_dir=save_dir, save_subdir=subdir)
+                                  save=save_pkl, save_dir=save_dir, save_subdir=subdir)
             mf_list.append(mf)
+    
+    print()    
+    if save:
+        mf = aeroct.concatenate_data_frames(mf_list)
+        filepath = mf.dump(save_dir=save_dir, filetype='csv', subdir=subdir, verb=False)
+        print('Matched data output to: \n{0}'.format(filepath))
     
     return mf_list
 

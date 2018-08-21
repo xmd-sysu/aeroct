@@ -733,7 +733,7 @@ def plot_anet_site(mf, site, data_frames=None, aod_type='total'):
     plt.show()
 
 
-def plot_region_mask(bounds):
+def plot_region_mask(bounds, show=True):
     '''
     Used to plot regions on a map which are bounded by longitude and latitude.
     
@@ -743,6 +743,8 @@ def plot_region_mask(bounds):
         Each 4-tuple in this list corresponds to a region that will be plotted on the
         map. The 4-tuples contain the bounds as follows:
         (min lon, max lon, min lat, max lat)
+    show : bool, optional (Default: True)
+        If True, the plot is shown otherwise the figure is passed as an output.    
     '''
     ax = plt.axes(projection=ccrs.PlateCarree())
     ax.coastlines()
@@ -759,4 +761,8 @@ def plot_region_mask(bounds):
                                    edgecolor='darkgrey', facecolor='lightgray')
         ax.add_patch(region)
     
-    plt.show()
+    fig = plt.gcf()
+    if show == True:
+        plt.show()
+    else:
+        return fig

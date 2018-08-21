@@ -583,8 +583,7 @@ def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='to
         For satellite-AERONET match-ups this determines which type of AOD data should be
         returned in the matched-up data-frame.
     save : bool, optional (Default: True)
-        Choose whether to save the resulting MatchFrame as both a csv file and a pickled
-        object.
+        Choose whether to save the resulting MatchFrame as a pickled object.
     save_dir : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
         The path to the directory where the MatchFrame will be saved.
     save_subdir : bool, optional (Default: True)
@@ -709,13 +708,13 @@ def collocate(df1, df2, match_time=30, match_dist=25, min_points=2, aod_type='to
     
     # Save MatchFrame
     if save:
-        csv_filepath = mf.dump(save_dir=save_dir, filetype='csv', subdir=save_subdir,
-                               verb=False)
+#         csv_filepath = mf.dump(save_dir=save_dir, filetype='csv', subdir=save_subdir,
+#                                verb=False)
         pkl_filepath = mf.dump(save_dir=save_dir, filetype='pickle', subdir=save_subdir,
                                verb=False)
         
 #         print('MatchFrame object saved to: \n{0}'.format(pkl_filepath))
-        print('Matched data output to: \n{0}'.format(csv_filepath))
+#         print('Matched data output to: \n{0}'.format(csv_filepath))
     
     return mf
     
