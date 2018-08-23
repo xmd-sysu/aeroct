@@ -60,7 +60,7 @@ def extract_from_mass(dates, fc_time, extract_dir):
                     file_writer.write('  pp_file="prods_op_gl-mn_{0}_{1}*"\n'.format(d, hh)) # main run
                     file_writer.write('end\n\n')
         
-        print('Extracting {0} day(s) of UM AOD files from {1} to location {2}'\
+        print('{0} day(s) of UM AOD files from {1} being extracted to location: {2}'\
               .format(len(dates), dates[0], extract_dir))
         os.system('moo select {0} -f {1} {2}'.format(q_um, src_uri, extract_dir))
 

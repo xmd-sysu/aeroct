@@ -8,7 +8,7 @@ Created on Jun 22, 2018
 @author: savis
 
 TODO: Allow products other than SDA15 to be used.
-TODO: Find the angstrom exponent from the AOD data 
+TODO: Find the angstrom exponent from the AOD data.
 '''
 
 from __future__ import division

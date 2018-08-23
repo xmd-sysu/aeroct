@@ -394,7 +394,7 @@ class DataFrame():
         os.system('touch {0}'.format(filepath))
         with open(filepath, 'w') as writer:
             pickle.dump(self, writer, -1)
-        print('Data frame saved successfully to {0}'.format(filepath))
+        print('DataFrame saved successfully to:\n {0}'.format(filepath))
     
     
     def extract(self, bounds=(-180, 180, -90, 90), time_bounds=(0, 24), aeronet_site=None):
@@ -440,10 +440,11 @@ class DataFrame():
                     in_lon = (self.longitudes >= bound[0]) & (self.longitudes <= bound[1])
                     in_lat = (self.latitudes >= bound[2]) & (self.latitudes <= bound[3])
                     in_bounds += (in_lon & in_lat)
+                
                 in_bounds = np.array(in_bounds, dtype=bool)
             
             in_time = (self.times >= time_bounds[0]) & (self.times <= time_bounds[1])
-            selected = (in_lon & in_lat & in_time)
+            selected = (in_time & in_bounds)
             
             ext_description = 'Extracted for lon, lat: {0}, time: {1}'\
                               .format(bounds, time_bounds)
@@ -467,7 +468,7 @@ class DataFrame():
                 if self.dust_filters is not None:
                     dust_filters = self.dust_filters.copy()
                     for key in dust_filters.keys():
-                        dust_filters[key] = dust_filters[key][in_time, in_lat, in_lon]
+                        dust_filters[key] = np.array(dust_filters[key])[in_time, in_lat, in_lon]
                 else:
                     dust_filters = None
                 
@@ -495,7 +496,7 @@ class DataFrame():
             if self.dust_filters is not None:
                 dust_filters = self.dust_filters.copy()
                 for key in dust_filters.keys():
-                    dust_filters[key] = dust_filters[key][selected]
+                    dust_filters[key] = np.array(dust_filters[key])[selected]
             else:
                 dust_filters = None
             
@@ -787,8 +788,10 @@ class MatchFrame():
         
         Parameters
         ----------
-        filename : str, optional (Default: '{dataset2}-{dataset1}-{aod-type}-YYYYMMDD.{ext}')
-            What to name the saved file.
+        filename : str, optional (Default: '{dataset2}-{dataset1}-{aod-type}-{date str}')
+            What to name the saved file. {date str} is 'YYYYMMDD' if the MatchFrame has a
+            single day of data, or '{initial date}-{final date}' if it has been
+            concatenated from a list of MatchFrames.
         save_dir : str, optional (Default: '/scratch/{USER}/aeroct/match_frames/')
             The path to the directory where the file will be saved.
         filetype : {'pickle', 'csv'}, optional (Default: 'csv')
@@ -815,7 +818,7 @@ class MatchFrame():
                                               self.aod_type[0])
         
         # File extension
-        if filetype == 'pickle':
+        if filetype in ['pkl', 'pickle']:
             save_dir += 'pkl/'
             file_ext = '.pkl'
         elif filetype == 'csv':
@@ -838,7 +841,7 @@ class MatchFrame():
         os.system('touch {0}'.format(filepath))
         
         # Write pickle file
-        if filetype == 'pickle':
+        if filetype in ['pkl', 'pickle']:
             with open(filepath, 'w') as fout:
                 pickle.dump(self, fout, -1)
         
@@ -876,7 +879,7 @@ class MatchFrame():
                 metadata.to_csv(fout, index=False)
                 df.to_csv(fout)
         
-        if verb: print('Data frame saved successfully to {0}'.format(filepath))
+        if verb: print('MatchFrame saved successfully to:\n {0}'.format(filepath))
         return filepath
     
     
@@ -928,7 +931,7 @@ class MatchFrame():
             in_time = (self.times >= time_bounds[0]) & (self.times <= time_bounds[1])
             selected = np.array(in_bounds & in_time)
             
-            sites = None
+            sites = None if (self.sites is None) else self.sites[selected]
             ext_description = 'Extracted for lon, lat: {0}, time: {1}'\
                               .format(bounds, time_bounds)
             
@@ -1191,7 +1194,7 @@ def concatenate_data_frames(df_list):
                 raise ValueError('The list of data frames do not contain data from the\
                                   same data-sets.')
             
-            dates.append(df.date)
+            dates.extend([df.date] * len(df.get_data()[0]))
             if df.aod[0] is None: aod0 = None
             else: aod0.extend(df.aod[0].ravel())
             if df.aod[1] is None: aod1 = None
@@ -1210,6 +1213,7 @@ def concatenate_data_frames(df_list):
         
         if isinstance(df_list[0].dust_filters, dict):
             dust_filters = pd.concat([pd.DataFrame.from_dict(df.dust_filters) for df in df_list])
+            dust_filters = dust_filters.to_dict('list')
         else:
             dust_filters = None
         
