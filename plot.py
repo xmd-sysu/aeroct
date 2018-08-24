@@ -613,7 +613,7 @@ def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None, sh
         The number of days over which to perform a running average. If None then the
         total number of days is divided by 50 and rounded.
     show : bool, optional (Default: True)
-        If True, the plot is shown otherwise the figure is passed as an output.    
+        If True, the plot is shown otherwise the figure is passed as an output.
     '''
     if not isinstance(mf_lists[0], list):
         mf_lists = [mf_lists]
@@ -689,6 +689,106 @@ def plot_time_series(mf_lists, stat, xlim=None, ylim=None, average_days=None, sh
         plt.legend(loc='best')
     
     fig.tight_layout()
+    if show == True:
+        plt.show()
+    else:
+        return fig
+
+
+def boxplot_um_aeronet(mf_lists, stat='R', show=True):
+    '''
+    Plot the matched-up AERONET and UM data with different lead times as boxplots against
+    lead time. Also can plot RMS or correlation coefficient onto a twinned axis. The
+    boxplot for AERONET is found by taking the data for all forecast times.
+    
+    Example:
+    date_list = aeroct.datetime_list('20170801', '20180731')
+    mf_lists = [aeroct.get_match_list('aeronet', 'metum', date_list, forecast_time2=fc)
+                    for fc in [0, 6, 12, 18, 24, 30, 36, 42, 72, 144]]
+    aeroct.boxplot_um_aeronet(mf_lists)
+    
+    Parameters
+    ----------
+    mf_lists : list of lists of MatchFrames
+        These contain the data to plot.
+        These MatchFrame lists should have different forecast lead times, but the same
+        dates. The first data set should be 'aeronet' and the second should be 'metum'
+        (see example)
+    stat : {'R', 'RMS, None}, optional (Default: 'R')
+        This is the statistic to plot on the twinned axis. 'R' is the Pearson correlation
+        coefficient.
+    show : bool, optional (Default: True)
+        If True, the plot is shown otherwise the figure is passed as an output.
+    '''
+    mfs = [aeroct.concatenate_data_frames(mf_list) for mf_list in mf_lists]
+    fc_times = np.array([np.rint(mf.forecast_times[1]) for mf in mfs], dtype=np.int)
+    
+    # Get the data
+    anet_data, um_data, r, rms = [], [], [], []
+    for mf in mfs:
+        anet_data.extend(mf.data[0])
+        um_data.append(mf.data[1])
+        r.append(mf.r)
+        rms.append(mf.rms)
+    
+    # Plot
+    fig, ax1 = plt.subplots()
+    ax1.set_position([0.18, 0.12, 0.72, 0.78])
+    if stat is not None:
+        ax2 = ax1.twinx()
+        ax2.set_position([0.18, 0.12, 0.72, 0.78])
+    ax3 = fig.add_axes([0.04, 0.12, 0.04, 0.78], sharey=ax1)
+     
+    # Plot boxplots
+    meanprops = dict(linestyle='-', linewidth=2.5, color='green')
+    medianprops = dict(linestyle='-', linewidth=2.5, color='orange')
+    ax1.boxplot(um_data, whis=0, showfliers=False, positions=fc_times, widths=3,
+                showmeans=True, meanline=True, #manage_xticks=False,
+                meanprops=meanprops, medianprops=medianprops)
+    ax3.boxplot(anet_data, whis=0, showfliers=False, widths=0.4, showmeans=True,
+                meanline=True, meanprops=meanprops, medianprops=medianprops)
+     
+    # Plot statistic
+    if stat == 'R':
+        ax2.plot(fc_times, r, c='r')
+        ax2.set_ylabel('Pearson Correlation Coefficient', color='r')
+    elif stat == 'RMS':
+        ax2.plot(fc_times, rms, c='r')
+        ax2.set_ylabel('RMS Error', color='r')
+    
+    # Axes
+    ax1.set_xlabel('Forecast Lead Time / hours')
+    ax1.set_ylabel('UM Dust AOD')
+    ax1.tick_params('y', direction='inout')
+    ax1.tick_params('x', which='both', top=True, direction='in')
+#     ax1.set_xticks(np.rint(np.linspace(np.min(fc_times), np.max(fc_times), 6)))
+#     ax1.set_xticks(np.rint(np.linspace(np.min(fc_times), np.max(fc_times), 16)), minor=True)
+    ax1.set_xlim((np.min(fc_times) - 5, np.max(fc_times) + 5))
+    
+    if stat is not None:
+        ax2.tick_params('y', colors='r', direction='inout')
+    else:
+        ax1.tick_params('y', right=True, direction='inout')
+    
+    # AERONET histogram axis
+    ax3.set_ylabel('AERONET Dust AOD')
+    # Remove axis, keep label
+    ax3.xaxis.set_visible(False)
+    plt.setp(ax3.spines.values(), visible=False)
+    ax3.tick_params(left=False, labelleft=False)
+    ax3.patch.set_visible(False)
+    
+    # Legend
+    ax1.plot([], [], label='mean', **meanprops)
+    ax1.plot([], [], label='median', **medianprops)
+    ax1.legend(loc='best')
+    
+    # Title
+    date_min = min(mfs[0].date).strftime('%Y-%m-%d')
+    date_max = max(mfs[0].date).strftime('%Y-%m-%d')
+    plt.suptitle('Collocated Unified Model & AERONET Data\n From {0} To {1}'\
+                 .format(date_min, date_max))
+    
     if show == True:
         plt.show()
     else:
